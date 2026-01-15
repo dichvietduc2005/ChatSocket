@@ -1,6 +1,7 @@
 package com.chat.server;
 
 import com.chat.server.core.ServerHandler;
+import com.chat.server.network.HttpFileServer; // Import server file
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -8,15 +9,24 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class ServerMain {
-    private static final int PORT = 8888;
-    private static final int MAX_THREADS = 100; // Hoặc số lượng tùy chỉnh
+    private static final int CHAT_PORT = 8888; // Port dành riêng cho Chat Socket
+    private static final int MAX_THREADS = 100;
 
     public static void main(String[] args) {
         ExecutorService pool = Executors.newFixedThreadPool(MAX_THREADS);
 
-        try (ServerSocket serverSocket = new ServerSocket(PORT)) {
-            System.out.println("Server is running on port " + PORT);
-            System.out.println("Waiting for clients...");
+        // --- 1. KHỞI CHẠY HTTP FILE SERVER (Chạy luồng riêng) ---
+        // Lưu ý: Hãy chắc chắn SimpleFileServer.java đang dùng port KHÁC 8888 (ví dụ 8080)
+        new Thread(() -> {
+            System.out.println("[System] Starting HTTP File Server...");
+            new HttpFileServer().start();
+        }).start();
+        // --------------------------------------------------------
+
+        // --- 2. KHỞI CHẠY CHAT SERVER (Luồng chính) ---
+        try (ServerSocket serverSocket = new ServerSocket(CHAT_PORT)) {
+            System.out.println("[System] Chat Server is running on port " + CHAT_PORT);
+            System.out.println("[System] Waiting for clients...");
 
             while (true) {
                 try {
@@ -32,7 +42,7 @@ public class ServerMain {
                 }
             }
         } catch (IOException e) {
-            System.err.println("Could not listen on port " + PORT);
+            System.err.println("Could not listen on port " + CHAT_PORT);
             e.printStackTrace();
         } finally {
             pool.shutdown();
