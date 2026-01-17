@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Server Monitor</title>
+    <style>
+        body {
+            background-color: #1e1e1e;
+            color: #00ff00; /* Hacker green */
+            font-family: 'Consolas', 'Courier New', monospace;
+            padding: 20px;
+            margin: 0;
+        }
+        h2 { border-bottom: 1px solid #333; padding-bottom: 10px; }
+        #log-container {
+            height: 80vh;
+            overflow-y: auto;
+            border: 1px solid #333;
+            padding: 10px;
+            background-color: #000;
+        }
+        .log-entry { margin-bottom: 5px; border-bottom: 1px solid #111; }
+        .system { color: #00bcd4; } /* Cyan */
+        .chat { color: #fff; }
+        .error { color: #ff5252; }
+    </style>
+</head>
+<body>
+
+    <h2>🖥️ REAL-TIME SERVER LOGS</h2>
+    <div id="status" style="color: yellow;">Connecting...</div>
+    <br>
+    <div id="log-container"></div>
+
+    <script>
+        // Kết nối tới WebSocket Server ở Port 8887
+        const ws = new WebSocket("ws://localhost:8887");
+        const container = document.getElementById("log-container");
+        const status = document.getElementById("status");
+
+        ws.onopen = function() {
+            status.innerHTML = "✅ Connected to Server";
+            status.style.color = "lime";
+        };
+
+        ws.onmessage = function(event) {
+            const msg = event.data;
+            const div = document.createElement("div");
+            div.className = "log-entry";
+            
+            // Highlight màu dựa trên nội dung
+            if (msg.includes("[System]")) div.classList.add("system");
+            else if (msg.includes("Error") || msg.includes("Lỗi")) div.classList.add("error");
+            else div.classList.add("chat");
+
+            div.textContent = msg;
+            container.appendChild(div);
+
+            // Tự động cuộn xuống dưới cùng
+            container.scrollTop = container.scrollHeight;
+        };
+
+        ws.onclose = function() {
+            status.innerHTML = "❌ Disconnected. Is server running?";
+            status.style.color = "red";
+        };
+    </script>
+</body>
+</html>
