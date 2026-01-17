@@ -33,7 +33,11 @@
                         <HBox spacing="10.0">
                             <children>
                                 <TextField fx:id="txtInput" onAction="#handleSend" promptText="Nhập tin nhắn..." HBox.hgrow="ALWAYS" />
+
                                 <Button mnemonicParsing="false" onAction="#handleSend" text="Gửi" />
+
+                                <Button mnemonicParsing="false" onAction="#handleSendFile" text="Gửi File" style="-fx-background-color: #4CAF50; -fx-text-fill: white;"/>
+
                                 <Button mnemonicParsing="false" onAction="#handleBuzz" style="-fx-text-fill: red; -fx-font-weight: bold;" text="BUZZ!" />
                             </children>
                         </HBox>
