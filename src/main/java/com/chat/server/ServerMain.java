@@ -5,6 +5,7 @@ import com.chat.server.core.ServerHandler;
 import com.chat.server.network.HttpFileServer;
 import com.chat.server.network.MulticastAdminServer;
 import com.chat.server.network.UdpDiscoveryServer;
+import com.chat.server.network.WebSocketServer; // Import WebSocket
 
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -26,7 +27,6 @@ public class ServerMain {
         new Thread(() -> {
             try {
                 System.out.println("[Service] Starting Censor Bot (Port 50051)...");
-                // Gọi hàm main của Bot để chạy gRPC Server
                 CensorBotServer.main(new String[]{});
             } catch (Exception e) {
                 System.err.println("⚠ Không thể khởi động Bot: " + e.getMessage());
@@ -40,8 +40,16 @@ public class ServerMain {
             new HttpFileServer().start();
         }).start();
 
-        // --- 3. KHỞI CHẠY UDP DISCOVERY ---
+        // --- 3. KHỞI CHẠY WEBSOCKET LOG SERVER ---
+        // Server chạy ở Port 8887 để đẩy log lên Web (Realtime)
+        new Thread(() -> {
+            System.out.println("[Service] Starting WebSocket Log Server (Port 8887)...");
+            new WebSocketServer().run();
+        }).start();
+
+        // --- 4. KHỞI CHẠY UDP DISCOVERY ---
         // Giúp Client quét mạng LAN để tìm thấy Server
+        // Lưu ý: Dùng new Thread(...) vì UdpDiscoveryServer implements Runnable
         new Thread(() -> {
             System.out.println("[Service] Starting UDP Discovery Server (Port 8889)...");
             new UdpDiscoveryServer().start();
@@ -53,8 +61,8 @@ public class ServerMain {
             new MulticastAdminServer().start();
         }).start();
 
-        // --- 5. KHỞI CHẠY CHAT SERVER (Main Thread) ---
-        // Server chạy ở Port 8888 để xử lý tin nhắn
+        // --- 6. KHỞI CHẠY CHAT SERVER (Main Thread) ---
+        // Server chạy ở Port 8888 để xử lý tin nhắn TCP
         try (ServerSocket serverSocket = new ServerSocket(CHAT_PORT)) {
             System.out.println("[Service] Chat Server is running on port " + CHAT_PORT);
             System.out.println("[System] Waiting for clients...");
@@ -65,9 +73,7 @@ public class ServerMain {
                     System.out.println("New client connected: " + clientSocket.getInetAddress());
 
                     // Tạo handler cho client mới
-                    // Handler này đã tích hợp:
-                    // + Gọi Censor Bot để lọc chat
-                    // + Gọi EmailService nếu user offline
+                    // Handler này đã tích hợp: Bot, Email, WebSocket Log
                     ServerHandler handler = new ServerHandler(clientSocket);
                     pool.execute(handler);
 
