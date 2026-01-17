@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ListView?>
+<?import javafx.scene.control.SplitPane?>
+<?import javafx.scene.control.TextArea?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane prefHeight="500.0" prefWidth="700.0" xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.chat.client.controller.ChatController">
+    <center>
+        <SplitPane dividerPositions="0.3" prefHeight="160.0" prefWidth="200.0" BorderPane.alignment="CENTER">
+            <items>
+                <VBox spacing="5.0">
+                    <children>
+                        <Label style="-fx-font-weight: bold;" text="Online Users" />
+                        <ListView fx:id="userList" VBox.vgrow="ALWAYS" />
+                    </children>
+                    <padding>
+                        <Insets bottom="10.0" left="10.0" right="10.0" top="10.0" />
+                    </padding>
+                </VBox>
+
+                <VBox spacing="10.0">
+                    <children>
+                        <TextArea fx:id="txtMessageArea" editable="false" prefHeight="200.0" prefWidth="200.0" wrapText="true" VBox.vgrow="ALWAYS" />
+                        <TextArea fx:id="txtNotification" editable="false" prefHeight="50.0" promptText="Thông báo từ Admin sẽ hiện ở đây..." style="-fx-text-fill: red;" />
+
+                        <HBox spacing="10.0">
+                            <children>
+                                <TextField fx:id="txtInput" onAction="#handleSend" promptText="Nhập tin nhắn..." HBox.hgrow="ALWAYS" />
+                                <Button mnemonicParsing="false" onAction="#handleSend" text="Gửi" />
+                                <Button mnemonicParsing="false" onAction="#handleBuzz" style="-fx-text-fill: red; -fx-font-weight: bold;" text="BUZZ!" />
+                            </children>
+                        </HBox>
+                    </children>
+                    <padding>
+                        <Insets bottom="10.0" left="10.0" right="10.0" top="10.0" />
+                    </padding>
+                </VBox>
+            </items>
+        </SplitPane>
+    </center>
+</BorderPane>
