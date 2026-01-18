@@ -1,7 +1,7 @@
 package com.chat.client.controller;
 
 import com.chat.client.network.TcpClient;
-import com.chat.client.network.HttpClientUtil; // [QUAN TRỌNG] Import cái này
+import com.chat.client.network.HttpUploadClient; // [QUAN TRỌNG] Import cái này
 import com.chat.common.model.ChatMessage;
 import com.chat.common.protocol.OpCode;
 import javafx.application.Platform;
@@ -168,7 +168,7 @@ public class ChatController {
                 try {
                     // Gọi hàm upload trong HttpClientUtil (Giả sử hàm đó tên là uploadFile)
                     // Nếu tên hàm bên file kia khác, bạn sửa lại tên hàm ở đây nhé
-                    String fileUrl = HttpClientUtil.uploadFile(file, "http://localhost:8080/api/upload");
+                    String fileUrl = HttpUploadClient.uploadFile(file, "http://localhost:8080/api/upload");
 
                     if (fileUrl != null) {
                         // 3. Upload xong thì gửi link cho mọi người

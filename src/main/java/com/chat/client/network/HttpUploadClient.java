@@ -5,7 +5,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
-public class HttpClientUtil {
+public class HttpUploadClient {
 
     /**
      * Upload file lên HTTP Server và nhận về đường dẫn (URL) của file đó.
