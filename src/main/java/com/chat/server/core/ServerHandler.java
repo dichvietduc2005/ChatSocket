@@ -1,6 +1,7 @@
 package com.chat.server.core;
 
 import com.chat.common.model.ChatMessage;
+import com.chat.common.protocol.OpCode;
 import com.chat.server.memory.RAMStorage;
 import com.chat.server.network.WebSocketServer;
 import com.chat.server.service.EmailService;
@@ -77,19 +78,22 @@ public class ServerHandler implements Runnable {
         // Gửi log ra Web (Bỏ qua nếu lỗi)
         try {
             WebSocketServer.broadcastLog("[" + msg.getOpCode() + "] " + msg.getSender() + ": " + msg.getContent());
-        } catch (Exception e) {}
+        } catch (Exception e) {
+        }
 
         switch (msg.getOpCode()) {
             case LOGIN:
                 this.username = msg.getSender();
                 RAMStorage.registerUser(this.username, this);
+                broadcastUserList();
                 break;
             case LOGOUT:
                 closeConnection();
                 break;
             case CHAT_MSG: // Chat 1-1
                 ServerHandler receiver = RAMStorage.onlineUsers.get(msg.getReceiver());
-                if (receiver != null) receiver.send(msg);
+                if (receiver != null)
+                    receiver.send(msg);
                 break;
 
             // === [QUAN TRỌNG] ĐÃ SỬA PHẦN NÀY ĐỂ BẠN TỰ THẤY TIN NHẮN CỦA MÌNH ===
@@ -127,12 +131,31 @@ public class ServerHandler implements Runnable {
         out.flush();
     }
 
+    private void broadcastUserList() {
+        String users = RAMStorage.getOnlineUsersString();
+        ChatMessage listMsg = new ChatMessage(OpCode.USER_LIST, "SERVER", users);
+        for (ServerHandler handler : RAMStorage.onlineUsers.values()) {
+            try {
+                handler.send(listMsg);
+            } catch (IOException e) {
+                // handler closed
+            }
+        }
+    }
+
     private void closeConnection() {
-        if (username != null) RAMStorage.removeUser(username);
+        if (username != null) {
+            RAMStorage.removeUser(username);
+            broadcastUserList();
+        }
         try {
-            if (in != null) in.close();
-            if (out != null) out.close();
-            if (socket != null) socket.close();
-        } catch (IOException e) {}
+            if (in != null)
+                in.close();
+            if (out != null)
+                out.close();
+            if (socket != null)
+                socket.close();
+        } catch (IOException e) {
+        }
     }
 }
