@@ -2,9 +2,7 @@ package com.chat.server.core;
 
 import com.chat.common.model.ChatMessage;
 import com.chat.common.protocol.OpCode;
-import com.chat.server.memory.RAMStorage;
-import com.chat.server.network.WebSocketServer;
-import com.chat.server.service.EmailService;
+// import com.chat.server.service.EmailService; // Tạm tắt nếu chưa có class này
 import com.chat.grpc.CensorProto;
 import com.chat.grpc.CensorServiceGrpc;
 import io.grpc.ManagedChannel;
@@ -17,8 +15,6 @@ import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.net.SocketException;
 import javax.net.ssl.SSLSocket;
-import java.util.List;
-import java.util.regex.Pattern;
 
 public class ServerHandler implements Runnable {
     private Socket socket;
@@ -32,12 +28,16 @@ public class ServerHandler implements Runnable {
     private static CensorServiceGrpc.CensorServiceBlockingStub censorStub;
 
     static {
-        // Kết nối tới Bot Server
-        censorChannel = ManagedChannelBuilder.forAddress("localhost", 50051)
-                .usePlaintext()
-                .build();
-        censorStub = CensorServiceGrpc.newBlockingStub(censorChannel);
-        System.out.println("[ServerHandler] Đã kết nối tới Bot Kiểm Duyệt.");
+        try {
+            // Kết nối tới Bot Server (Port 50051)
+            censorChannel = ManagedChannelBuilder.forAddress("localhost", 50051)
+                    .usePlaintext()
+                    .build();
+            censorStub = CensorServiceGrpc.newBlockingStub(censorChannel);
+            System.out.println("[ServerHandler] Connected to Censor Bot.");
+        } catch (Exception e) {
+            System.err.println("[ServerHandler] Warning: Censor Bot not available.");
+        }
     }
     // --------------------------------
 
@@ -48,22 +48,26 @@ public class ServerHandler implements Runnable {
 
     public ServerHandler(SSLSocket sslSocket) {
         this.sslSocket = sslSocket;
-        this.socket = sslSocket; // SSLSocket extends Socket
+        this.socket = sslSocket;
+    }
+    
+    public String getUsername() {
+        return username;
     }
 
     @Override
     public void run() {
         try {
-            // Hỗ trợ cả Socket thường và SSLSocket
             if (sslSocket != null) {
-                // SSL connection - server tạo ObjectOutputStream trước
                 out = new ObjectOutputStream(sslSocket.getOutputStream());
                 in = new ObjectInputStream(sslSocket.getInputStream());
             } else {
-                // TCP thường
                 out = new ObjectOutputStream(socket.getOutputStream());
                 in = new ObjectInputStream(socket.getInputStream());
             }
+            
+            // Đăng ký kết nối (nhưng chưa có tên)
+            ServerManager.addClient(this);
 
             while (true) {
                 try {
@@ -73,124 +77,98 @@ public class ServerHandler implements Runnable {
                         handleMessage(msg);
                     }
                 } catch (EOFException | SocketException e) {
-                    System.out.println("Client disconnected: " + username);
-                    break;
+                    break; // Client ngắt kết nối
                 }
             }
         } catch (IOException | ClassNotFoundException e) {
-            e.printStackTrace();
+            // e.printStackTrace();
         } finally {
             closeConnection();
         }
     }
 
     private void handleMessage(ChatMessage msg) throws IOException {
-        // [LỌC TỪ BẬY]
+        // [1. LỌC TỪ BẬY]
         if (msg.getContent() != null && !msg.getContent().isEmpty()) {
             String cleanMsg = filterProfanity(msg.getContent());
             msg.setContent(cleanMsg);
         }
 
-        // Gửi log ra Web (Bỏ qua nếu lỗi)
-        try {
-            WebSocketServer.broadcastLog("[" + msg.getOpCode() + "] " + msg.getSender() + ": " + msg.getContent());
-        } catch (Exception e) {
-        }
-
+        // [2. XỬ LÝ THEO OPCODE]
         switch (msg.getOpCode()) {
             case LOGIN:
                 this.username = msg.getSender();
-                RAMStorage.registerUser(this.username, this);
-                broadcastUserList();
+                System.out.println("User logged in: " + username);
+                
+                // Cập nhật danh sách Online cho mọi người
+                ServerManager.broadcastUserList();
+                
+                // [QUAN TRỌNG] Gửi lại 50 tin nhắn lịch sử cho người mới vào
+                ServerManager.sendHistoryTo(this);
                 break;
+
             case LOGOUT:
-                closeConnection();
-                break;
-            case CHAT_MSG: // Chat 1-1
-                ServerHandler receiver = RAMStorage.onlineUsers.get(msg.getReceiver());
-                if (receiver != null) {
-                    receiver.send(msg);
-                    // Gửi ngược lại cho chính người gửi để họ thấy tin nhắn mình vừa nhắn
-                    this.send(msg);
+                throw new SocketException("User logged out"); // Thoát vòng lặp để xuống finally
+
+            case CHAT_MSG: // Chat Riêng 1-1
+                if (msg.getReceiver() != null) {
+                    ServerManager.sendPrivate(msg, msg.getReceiver(), this);
+                } else {
+                    // Nếu lỗi client gửi private mà không có người nhận -> chuyển thành Broadcast
+                    msg.setOpCode(OpCode.CHAT_GROUP);
+                    handleMessage(msg);
                 }
                 break;
 
-            // === [QUAN TRỌNG] ĐÃ SỬA PHẦN NÀY ĐỂ BẠN TỰ THẤY TIN NHẮN CỦA MÌNH ===
-            case CHAT_GROUP:
-                for (ServerHandler handler : RAMStorage.onlineUsers.values()) {
-                    // Đã xóa dòng if chặn người gửi. Giờ gửi cho TẤT CẢ mọi người.
-                    handler.send(msg);
-                }
+            case CHAT_GROUP: // Chat Tổng (Broadcast)
+                ServerManager.broadcast(msg, this);
+                break;
+                
+            default:
                 break;
         }
     }
 
-    /**
-     * Hàm lọc từ bậy (Logic giữ nguyên)
-     */
-    private String filterProfanity(String originalText) {
+    // Gửi tin nhắn xuống Client
+    public synchronized void send(ChatMessage msg) {
         try {
+            if (!socket.isClosed()) {
+                out.writeObject(msg);
+                out.flush();
+            }
+        } catch (IOException e) {
+            // Lỗi mạng -> Client coi như đã mất kết nối
+        }
+    }
+
+    // Logic gọi sang gRPC Bot để lọc từ bậy
+    private String filterProfanity(String originalText) {
+        if (originalText == null || censorStub == null) return originalText;
+        try {
+            // Chỉ lọc Text, không lọc URL ảnh/file (tránh làm hỏng link)
+            if (originalText.startsWith("http")) return originalText;
+            
             CensorProto.TextRequest request = CensorProto.TextRequest.newBuilder()
                     .setText(originalText)
                     .build();
-
             CensorProto.ProfanityResponse response = censorStub.checkProfanity(request);
 
             if (response.getHasProfanity()) {
-                return "*** Tin nhắn vi phạm ***";
+                return "*** [CENSORED] ***";
             }
         } catch (Exception e) {
-            System.err.println("⚠ Lỗi gọi Bot: " + e.getMessage());
+            // Nếu Bot chết, cho qua tin nhắn (Fail-open)
         }
         return originalText;
     }
 
-    public synchronized void send(ChatMessage msg) throws IOException {
-        out.writeObject(msg);
-        out.flush();
-    }
-
-    private void broadcastUserList() {
-        // Tạo danh sách users kèm IP: "user1:IP1,user2:IP2"
-        String usersWithIP = RAMStorage.onlineUsers.entrySet().stream()
-                .map(entry -> {
-                    String username = entry.getKey();
-                    ServerHandler handler = entry.getValue();
-                    String ip = handler.getClientIP();
-                    return username + ":" + ip;
-                })
-                .collect(java.util.stream.Collectors.joining(","));
-
-        ChatMessage listMsg = new ChatMessage(OpCode.USER_LIST, "SERVER", usersWithIP);
-        for (ServerHandler handler : RAMStorage.onlineUsers.values()) {
-            try {
-                handler.send(listMsg);
-            } catch (IOException e) {
-                // handler closed
-            }
-        }
-    }
-
-    public String getClientIP() {
-        if (socket != null && !socket.isClosed()) {
-            return socket.getInetAddress().getHostAddress();
-        }
-        return "127.0.0.1";
-    }
-
     private void closeConnection() {
-        if (username != null) {
-            RAMStorage.removeUser(username);
-            broadcastUserList();
-        }
+        System.out.println("Client disconnected: " + (username != null ? username : "Unknown"));
+        ServerManager.removeClient(this); // Xóa khỏi danh sách quản lý
         try {
-            if (in != null)
-                in.close();
-            if (out != null)
-                out.close();
-            if (socket != null)
-                socket.close();
-        } catch (IOException e) {
-        }
+            if (in != null) in.close();
+            if (out != null) out.close();
+            if (socket != null) socket.close();
+        } catch (IOException e) {}
     }
 }
