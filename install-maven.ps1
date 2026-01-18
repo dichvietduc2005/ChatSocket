@@ -22,7 +22,13 @@ if (-not $isAdmin) {
 
 # Maven version and download URL
 $mavenVersion = "3.9.6"
-$mavenUrl = "https://dlcdn.apache.org/maven/maven-3/$mavenVersion/binaries/apache-maven-$mavenVersion-bin.zip"
+# Try multiple mirror URLs
+$mavenUrls = @(
+    "https://dlcdn.apache.org/maven/maven-3/$mavenVersion/binaries/apache-maven-$mavenVersion-bin.zip",
+    "https://archive.apache.org/dist/maven/maven-3/$mavenVersion/binaries/apache-maven-$mavenVersion-bin.zip",
+    "https://mirrors.ocf.berkeley.edu/apache/maven/maven-3/$mavenVersion/binaries/apache-maven-$mavenVersion-bin.zip"
+)
+$mavenUrl = $mavenUrls[0]
 $mavenZip = "$env:TEMP\apache-maven-$mavenVersion-bin.zip"
 $installDir = "C:\Program Files\Apache\maven"
 
@@ -44,15 +50,26 @@ try {
 
 Write-Host ""
 Write-Host "[2/5] Downloading Maven $mavenVersion..." -ForegroundColor Green
-Write-Host "URL: $mavenUrl" -ForegroundColor Gray
 
-try {
-    $ProgressPreference = 'SilentlyContinue'
-    Invoke-WebRequest -Uri $mavenUrl -OutFile $mavenZip -UseBasicParsing
-    Write-Host "✓ Download complete" -ForegroundColor Green
-} catch {
-    Write-Host "✗ Download failed: $_" -ForegroundColor Red
+$downloadSuccess = $false
+foreach ($url in $mavenUrls) {
+    Write-Host "Trying: $url" -ForegroundColor Gray
+    try {
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri $url -OutFile $mavenZip -UseBasicParsing -ErrorAction Stop
+        Write-Host "✓ Download complete from: $url" -ForegroundColor Green
+        $downloadSuccess = $true
+        break
+    } catch {
+        Write-Host "✗ Failed: $_" -ForegroundColor Yellow
+        continue
+    }
+}
+
+if (-not $downloadSuccess) {
+    Write-Host "✗ All download attempts failed!" -ForegroundColor Red
     Write-Host "Please check your internet connection and try again." -ForegroundColor Yellow
+    Write-Host "Or download manually from: https://maven.apache.org/download.cgi" -ForegroundColor Yellow
     exit 1
 }
 

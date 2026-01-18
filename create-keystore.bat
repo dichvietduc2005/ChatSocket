@@ -3,6 +3,47 @@ chcp 65001 >nul
 echo Creating keystore for SSL/TLS...
 echo.
 
+REM Tìm keytool tự động
+set KEYTOOL=
+if defined JAVA_HOME (
+    if exist "%JAVA_HOME%\bin\keytool.exe" (
+        set KEYTOOL=%JAVA_HOME%\bin\keytool.exe
+        goto :found
+    )
+)
+
+REM Tìm trong Program Files\Java
+for /d %%i in ("C:\Program Files\Java\jdk-*") do (
+    if exist "%%i\bin\keytool.exe" (
+        set KEYTOOL=%%i\bin\keytool.exe
+        goto :found
+    )
+)
+
+REM Tìm trong Program Files (x86)\Java
+for /d %%i in ("C:\Program Files (x86)\Java\jdk-*") do (
+    if exist "%%i\bin\keytool.exe" (
+        set KEYTOOL=%%i\bin\keytool.exe
+        goto :found
+    )
+)
+
+REM Nếu không tìm thấy, thử dùng keytool từ PATH
+where keytool >nul 2>&1
+if %errorlevel% equ 0 (
+    set KEYTOOL=keytool
+    goto :found
+)
+
+echo ERROR: keytool not found!
+echo Please install JDK or add JDK\bin to PATH
+pause
+exit /b 1
+
+:found
+echo Using keytool: %KEYTOOL%
+echo.
+
 set KEYSTORE_FILE=server.jks
 set KEYSTORE_PASSWORD=changeme
 set CERT_ALIAS=chatserver
@@ -10,7 +51,7 @@ set CERT_FILE=server.cer
 set TRUSTSTORE_FILE=client-truststore.jks
 
 echo [Step 1] Generating Server Keystore...
-keytool -genkeypair ^
+"%KEYTOOL%" -genkeypair ^
     -alias %CERT_ALIAS% ^
     -keyalg RSA ^
     -keysize 2048 ^
@@ -30,7 +71,7 @@ echo Keystore created: %KEYSTORE_FILE%
 echo.
 
 echo [Step 2] Exporting Server Certificate...
-keytool -exportcert ^
+"%KEYTOOL%" -exportcert ^
     -alias %CERT_ALIAS% ^
     -keystore %KEYSTORE_FILE% ^
     -storepass %KEYSTORE_PASSWORD% ^
@@ -46,7 +87,7 @@ echo Certificate exported: %CERT_FILE%
 echo.
 
 echo [Step 3] Creating Client Truststore...
-keytool -importcert ^
+"%KEYTOOL%" -importcert ^
     -alias %CERT_ALIAS% ^
     -file %CERT_FILE% ^
     -keystore %TRUSTSTORE_FILE% ^
