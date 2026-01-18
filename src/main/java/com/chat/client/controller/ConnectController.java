@@ -1,6 +1,7 @@
 package com.chat.client.controller;
 
 import com.chat.client.network.TcpClient;
+import com.chat.client.network.UdpDiscovery;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
@@ -14,11 +15,33 @@ import javafx.stage.Stage;
 import java.io.IOException;
 
 public class ConnectController {
-    @FXML private TextField txtIp;
-    @FXML private TextField txtPort;
-    @FXML private TextField txtName;
-    @FXML private Label lblStatus;
-    @FXML private Button btnConnect;
+    @FXML
+    private TextField txtIp;
+    @FXML
+    private TextField txtPort;
+    @FXML
+    private TextField txtName;
+    @FXML
+    private Label lblStatus;
+    @FXML
+    private Button btnConnect;
+
+    @FXML
+    public void initialize() {
+        lblStatus.setText("Đang tìm Server trong mạng nội bộ...");
+        UdpDiscovery.discoverServer().thenAccept(serverAddr -> {
+            javafx.application.Platform.runLater(() -> {
+                if (serverAddr != null) {
+                    String[] parts = serverAddr.split(":");
+                    txtIp.setText(parts[0]);
+                    txtPort.setText(parts[1]);
+                    lblStatus.setText("Đã tìm thấy Server!");
+                } else {
+                    lblStatus.setText("Không tìm thấy Server tự động. Hãy nhập tay.");
+                }
+            });
+        });
+    }
 
     @FXML
     public void handleConnect(ActionEvent event) {
