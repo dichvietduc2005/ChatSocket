@@ -55,10 +55,6 @@ ChatSocket/
 │   ├── bot/
 │   │   └── CensorBotServer.java      (gRPC censor bot - TODO)
 │   │
-│   └── demo/                         ✅ (Demo applications)
-│       ├── DemoServer.java
-│       ├── DemoClient.java
-│       └── DemoClientHandler.java
 │
 ├── create-keystore.bat               ✅ (Windows keystore script)
 ├── create-keystore.sh                ✅ (Linux/macOS keystore script)
@@ -91,13 +87,13 @@ chmod +x create-keystore.sh
 ./create-keystore.sh
 ```
 
-### 3. Run Demo
+### 3. Run Application
 ```bash
 # Terminal 1: Start Server
-mvn exec:java -Dexec.mainClass="com.chat.demo.DemoServer"
+mvn exec:java "-Dexec.mainClass=com.chat.server.ServerMain"
 
-# Terminal 2: Start Client
-mvn exec:java -Dexec.mainClass="com.chat.demo.DemoClient"
+# Terminal 2: Start Client (JavaFX GUI)
+mvn javafx:run
 ```
 
 ### 4. Test Commands
@@ -209,13 +205,13 @@ Reserved:
 
 ## 🧪 Testing
 
-### Run Demo Applications
+### Run Applications
 ```bash
 # Server
-mvn exec:java -Dexec.mainClass="com.chat.demo.DemoServer"
+mvn exec:java "-Dexec.mainClass=com.chat.server.ServerMain"
 
 # Client (multiple terminals)
-mvn exec:java -Dexec.mainClass="com.chat.demo.DemoClient"
+mvn javafx:run
 ```
 
 ### Verify SSL Encryption (Wireshark)
@@ -447,7 +443,7 @@ Triển khai tính năng UDP/Multicast/SSL
 ✅ Broadcast Discovery - 100% Complete
 ✅ Multicast Admin - 100% Complete
 ✅ SSL/TLS - 100% Complete
-✅ Demo Applications - 100% Complete
+✅ All Features Integrated into Main Applications
 ✅ Documentation - 100% Complete
 
 🚀 Ready for:
