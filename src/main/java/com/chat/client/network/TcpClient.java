@@ -3,12 +3,13 @@ package com.chat.client.network;
 import com.chat.common.model.ChatMessage;
 import com.chat.common.protocol.OpCode;
 import com.chat.common.protocol.NetworkConstants;
+import com.chat.common.crypto.SSLUtil;
 
 import javafx.application.Platform;
 import javafx.scene.control.TextArea;
 import javafx.stage.Stage;
 
-import javax.sound.sampled.*;
+import javax.net.ssl.SSLSocket;
 import java.awt.Toolkit;
 import java.io.*;
 import java.net.*;
@@ -21,25 +22,51 @@ public class TcpClient {
     private static final int MULTICAST_PORT = NetworkConstants.MULTICAST_PORT;
     private static final String MULTICAST_ADDRESS = NetworkConstants.MULTICAST_ADDRESS;
 
-    // === TCP COMPONENTS (PHẦN MỚI THÊM VÀO) ===
+    // === TCP/SSL COMPONENTS ===
     private Socket socket;
+    private SSLSocket sslSocket;
     private ObjectOutputStream out;
     private ObjectInputStream in;
     private boolean isRunning = false;
+    private boolean useSSL = false;
     private Consumer<ChatMessage> onMessageReceived; // Callback để cập nhật giao diện
 
-    // === UDP & MULTICAST COMPONENTS (CỦA THỊNH) ===
+    // === UDP & MULTICAST COMPONENTS ===
     private DatagramSocket buzzSocket;
     private MulticastSocket multicastSocket;
     private Stage primaryStage;
 
-    // ================== 1. PHẦN KẾT NỐI TCP (QUAN TRỌNG) ==================
+    // ================== 1. PHẦN KẾT NỐI TCP/SSL ==================
 
     public boolean connect(String serverIP, int port, String username) {
+        return connect(serverIP, port, username, false);
+    }
+
+    public boolean connect(String serverIP, int port, String username, boolean useSSL) {
         try {
-            socket = new Socket(serverIP, port);
-            out = new ObjectOutputStream(socket.getOutputStream());
-            in = new ObjectInputStream(socket.getInputStream());
+            this.useSSL = useSSL;
+            
+            if (useSSL) {
+                // SSL connection
+                var sslContext = SSLUtil.createClientSSLContext();
+                sslSocket = SSLUtil.createSSLSocket(serverIP, port, sslContext);
+                socket = sslSocket;
+                
+                // Đợi một chút để server tạo ObjectOutputStream trước
+                Thread.sleep(100);
+                
+                // Client tạo ObjectInputStream trước (để nhận header từ server)
+                in = new ObjectInputStream(sslSocket.getInputStream());
+                out = new ObjectOutputStream(sslSocket.getOutputStream());
+                
+                System.out.println("✓ Connected securely with cipher: " + sslSocket.getSession().getCipherSuite());
+            } else {
+                // TCP thường
+                socket = new Socket(serverIP, port);
+                out = new ObjectOutputStream(socket.getOutputStream());
+                in = new ObjectInputStream(socket.getInputStream());
+            }
+            
             isRunning = true;
 
             // Gửi gói tin LOGIN ngay khi kết nối
@@ -51,7 +78,7 @@ public class TcpClient {
             new Thread(this::listenForMessages).start();
             return true;
 
-        } catch (IOException e) {
+        } catch (Exception e) {
             e.printStackTrace();
             return false;
         }
@@ -140,12 +167,11 @@ public class TcpClient {
     }
 
     public void sendBuzz(String targetIP) {
-        // Logic gửi buzz đơn giản
-        try {
+        try (DatagramSocket socket = new DatagramSocket()) {
             byte[] data = "BUZZ".getBytes();
             DatagramPacket packet = new DatagramPacket(data, data.length, InetAddress.getByName(targetIP),
                     UDP_BUZZ_PORT);
-            new DatagramSocket().send(packet);
+            socket.send(packet);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -204,13 +230,27 @@ public class TcpClient {
                     try {
                         DatagramPacket pack = new DatagramPacket(buf, buf.length);
                         multicastSocket.receive(pack);
-                        String msg = new String(pack.getData(), 0, pack.getLength());
-                        Platform.runLater(() -> notificationArea.appendText("🔔 ADMIN: " + msg + "\n"));
+                        String rawMsg = new String(pack.getData(), 0, pack.getLength());
+                        
+                        // Strip "ADMIN:" prefix if present
+                        final String msg = rawMsg.startsWith("ADMIN:") ? rawMsg.substring(6) : rawMsg;
+                        
+                        // Hiển thị trong TextArea (nếu có) hoặc console (nếu không có)
+                        if (notificationArea != null) {
+                            Platform.runLater(() -> notificationArea.appendText("🔔 ADMIN: " + msg + "\n"));
+                        } else {
+                            // Console mode (cho DemoClient)
+                            System.out.println("🔔 ADMIN: " + msg);
+                        }
                     } catch (Exception e) {
+                        if (!multicastSocket.isClosed()) {
+                            System.err.println("Error receiving multicast: " + e.getMessage());
+                        }
                     }
                 }
             }).start();
         } catch (Exception e) {
+            System.err.println("Lỗi UDP: " + e.getMessage());
             e.printStackTrace();
         }
     }

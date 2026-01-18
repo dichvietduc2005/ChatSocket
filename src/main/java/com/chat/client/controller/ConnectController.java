@@ -2,6 +2,7 @@ package com.chat.client.controller;
 
 import com.chat.client.network.TcpClient;
 import com.chat.client.network.UdpDiscovery;
+import com.chat.common.protocol.NetworkConstants;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
@@ -34,9 +35,17 @@ public class ConnectController {
                 if (serverAddr != null) {
                     String[] parts = serverAddr.split(":");
                     txtIp.setText(parts[0]);
-                    txtPort.setText(parts[1]);
-                    lblStatus.setText("Đã tìm thấy Server!");
+                    // Tự động dùng port SSL (8889) nếu discovery trả về port TCP (8888)
+                    if (parts.length > 1 && parts[1].equals(String.valueOf(NetworkConstants.TCP_PORT))) {
+                        txtPort.setText(String.valueOf(NetworkConstants.TCP_SSL_PORT));
+                        lblStatus.setText("Đã tìm thấy Server! (SSL/TLS)");
+                    } else {
+                        txtPort.setText(parts.length > 1 ? parts[1] : String.valueOf(NetworkConstants.TCP_SSL_PORT));
+                        lblStatus.setText("Đã tìm thấy Server!");
+                    }
                 } else {
+                    // Mặc định dùng SSL port
+                    txtPort.setText(String.valueOf(NetworkConstants.TCP_SSL_PORT));
                     lblStatus.setText("Không tìm thấy Server tự động. Hãy nhập tay.");
                 }
             });
@@ -63,7 +72,11 @@ public class ConnectController {
 
         // Khởi tạo Client và kết nối
         TcpClient client = new TcpClient();
-        boolean connected = client.connect(ip, port, name);
+        
+        // Xác định có dùng SSL không (port 8889 = SSL, port 8888 = TCP thường)
+        boolean useSSL = (port == NetworkConstants.TCP_SSL_PORT);
+        
+        boolean connected = client.connect(ip, port, name, useSSL);
 
         if (connected) {
             try {
@@ -79,8 +92,16 @@ public class ConnectController {
                 stage.setScene(new Scene(root));
                 stage.setTitle("Chat Room - " + name);
 
-                // Kích hoạt tính năng UDP Rung cửa sổ
+                // Kích hoạt các tính năng: UDP Buzz, Multicast
                 client.initBuzzListener(stage);
+                
+                // Lấy TextArea từ ChatController để hiển thị multicast notifications
+                javafx.scene.control.TextArea notificationArea = chatController.getNotificationArea();
+                if (notificationArea != null) {
+                    client.startMulticastListener(notificationArea);
+                } else {
+                    client.startMulticastListener(null); // Console mode
+                }
 
             } catch (IOException e) {
                 e.printStackTrace();

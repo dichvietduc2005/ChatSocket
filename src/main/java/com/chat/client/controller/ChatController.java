@@ -22,12 +22,17 @@ public class ChatController {
 
     private TcpClient client;
     private String myName;
+    private java.util.Map<String, String> userIPMap = new java.util.HashMap<>(); // Map username -> IP
 
     public void setClient(TcpClient client, String name) {
         this.client = client;
         this.myName = name;
-        client.startMulticastListener(txtNotification);
+        // Multicast listener sẽ được khởi động từ ConnectController
         client.setOnMessageReceived(this::processMessage);
+    }
+
+    public TextArea getNotificationArea() {
+        return txtNotification;
     }
 
     private void processMessage(ChatMessage msg) {
@@ -37,10 +42,27 @@ public class ChatController {
                 txtMessageArea.appendText(msg.getSender() + ": " + msg.getContent() + "\n");
                 break;
             case USER_LIST:
-                String[] users = msg.getContent().split(",");
+                // Parse users với IP: "user1:IP1,user2:IP2"
+                String[] usersWithIP = msg.getContent().split(",");
+                java.util.List<String> usernames = new java.util.ArrayList<>();
+                userIPMap.clear();
+                
+                for (String userInfo : usersWithIP) {
+                    String[] parts = userInfo.split(":");
+                    if (parts.length >= 2) {
+                        String username = parts[0];
+                        String ip = parts[1];
+                        usernames.add(username);
+                        userIPMap.put(username, ip);
+                    } else if (parts.length == 1) {
+                        // Fallback: chỉ có username, không có IP
+                        usernames.add(parts[0]);
+                    }
+                }
+                
                 Platform.runLater(() -> {
                     userList.getItems().clear();
-                    userList.getItems().addAll(users);
+                    userList.getItems().addAll(usernames);
                 });
                 break;
         }
@@ -58,11 +80,33 @@ public class ChatController {
     @FXML
     public void handleBuzz(ActionEvent event) {
         String selectedUser = userList.getSelectionModel().getSelectedItem();
-        if (selectedUser != null) {
-            txtMessageArea.appendText(">>> Bạn vừa gửi BUZZ tới " + selectedUser + "\n");
-        } else {
+        if (selectedUser == null) {
             txtMessageArea.appendText(">>> Chọn một người để BUZZ!\n");
+            return;
         }
+
+        // Lấy IP của user được chọn
+        String targetIP = getUserIP(selectedUser);
+        
+        if (targetIP == null) {
+            // Nếu không có IP, thử dùng localhost (cho test trên cùng máy)
+            targetIP = "127.0.0.1";
+            txtMessageArea.appendText(">>> Gửi BUZZ tới " + selectedUser + " (localhost)...\n");
+        } else {
+            txtMessageArea.appendText(">>> Gửi BUZZ tới " + selectedUser + " (" + targetIP + ")\n");
+        }
+
+        // Gửi BUZZ
+        if (client != null) {
+            client.sendBuzz(targetIP);
+        } else {
+            txtMessageArea.appendText(">>> Lỗi: Client chưa được khởi tạo!\n");
+        }
+    }
+
+    private String getUserIP(String username) {
+        // Trả về IP từ map, hoặc null nếu không có
+        return userIPMap.get(username);
     }
 
     // --- [MỚI THÊM] Hàm xử lý nút Gửi File ---

@@ -16,11 +16,13 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.net.SocketException;
+import javax.net.ssl.SSLSocket;
 import java.util.List;
 import java.util.regex.Pattern;
 
 public class ServerHandler implements Runnable {
     private Socket socket;
+    private SSLSocket sslSocket;
     private ObjectOutputStream out;
     private ObjectInputStream in;
     private String username;
@@ -41,13 +43,27 @@ public class ServerHandler implements Runnable {
 
     public ServerHandler(Socket socket) {
         this.socket = socket;
+        this.sslSocket = null;
+    }
+
+    public ServerHandler(SSLSocket sslSocket) {
+        this.sslSocket = sslSocket;
+        this.socket = sslSocket; // SSLSocket extends Socket
     }
 
     @Override
     public void run() {
         try {
-            out = new ObjectOutputStream(socket.getOutputStream());
-            in = new ObjectInputStream(socket.getInputStream());
+            // Hỗ trợ cả Socket thường và SSLSocket
+            if (sslSocket != null) {
+                // SSL connection - server tạo ObjectOutputStream trước
+                out = new ObjectOutputStream(sslSocket.getOutputStream());
+                in = new ObjectInputStream(sslSocket.getInputStream());
+            } else {
+                // TCP thường
+                out = new ObjectOutputStream(socket.getOutputStream());
+                in = new ObjectInputStream(socket.getInputStream());
+            }
 
             while (true) {
                 try {
@@ -132,8 +148,17 @@ public class ServerHandler implements Runnable {
     }
 
     private void broadcastUserList() {
-        String users = RAMStorage.getOnlineUsersString();
-        ChatMessage listMsg = new ChatMessage(OpCode.USER_LIST, "SERVER", users);
+        // Tạo danh sách users kèm IP: "user1:IP1,user2:IP2"
+        String usersWithIP = RAMStorage.onlineUsers.entrySet().stream()
+            .map(entry -> {
+                String username = entry.getKey();
+                ServerHandler handler = entry.getValue();
+                String ip = handler.getClientIP();
+                return username + ":" + ip;
+            })
+            .collect(java.util.stream.Collectors.joining(","));
+        
+        ChatMessage listMsg = new ChatMessage(OpCode.USER_LIST, "SERVER", usersWithIP);
         for (ServerHandler handler : RAMStorage.onlineUsers.values()) {
             try {
                 handler.send(listMsg);
@@ -141,6 +166,13 @@ public class ServerHandler implements Runnable {
                 // handler closed
             }
         }
+    }
+
+    public String getClientIP() {
+        if (socket != null && !socket.isClosed()) {
+            return socket.getInetAddress().getHostAddress();
+        }
+        return "127.0.0.1";
     }
 
     private void closeConnection() {
