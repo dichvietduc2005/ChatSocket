@@ -15,10 +15,14 @@ import javafx.stage.FileChooser; // Import hộp thoại chọn file
 import java.io.File;
 
 public class ChatController {
-    @FXML private ListView<String> userList;
-    @FXML private TextArea txtMessageArea;
-    @FXML private TextArea txtNotification;
-    @FXML private TextField txtInput;
+    @FXML
+    private ListView<String> userList;
+    @FXML
+    private TextArea txtMessageArea;
+    @FXML
+    private TextArea txtNotification;
+    @FXML
+    private TextField txtInput;
 
     private TcpClient client;
     private String myName;
@@ -29,6 +33,17 @@ public class ChatController {
         this.myName = name;
         // Multicast listener sẽ được khởi động từ ConnectController
         client.setOnMessageReceived(this::processMessage);
+
+        // [MỚI] Bắt sự kiện chọn người trong danh sách để đổi gợi ý nhập liệu
+        userList.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) -> {
+            Platform.runLater(() -> {
+                if (newVal == null || newVal.equals("Mọi người")) {
+                    txtInput.setPromptText("Nhập tin nhắn gửi tới Mọi người...");
+                } else {
+                    txtInput.setPromptText("Đang nhắn tin riêng cho [" + newVal + "]...");
+                }
+            });
+        });
     }
 
     public TextArea getNotificationArea() {
@@ -38,6 +53,12 @@ public class ChatController {
     private void processMessage(ChatMessage msg) {
         switch (msg.getOpCode()) {
             case CHAT_MSG:
+                if (msg.getSender().equals(myName)) {
+                    txtMessageArea.appendText("[Riêng tới " + msg.getReceiver() + "]: " + msg.getContent() + "\n");
+                } else {
+                    txtMessageArea.appendText("[Riêng từ " + msg.getSender() + "]: " + msg.getContent() + "\n");
+                }
+                break;
             case CHAT_GROUP:
                 txtMessageArea.appendText(msg.getSender() + ": " + msg.getContent() + "\n");
                 break;
@@ -46,7 +67,7 @@ public class ChatController {
                 String[] usersWithIP = msg.getContent().split(",");
                 java.util.List<String> usernames = new java.util.ArrayList<>();
                 userIPMap.clear();
-                
+
                 for (String userInfo : usersWithIP) {
                     String[] parts = userInfo.split(":");
                     if (parts.length >= 2) {
@@ -59,10 +80,21 @@ public class ChatController {
                         usernames.add(parts[0]);
                     }
                 }
-                
+
                 Platform.runLater(() -> {
+                    String selected = userList.getSelectionModel().getSelectedItem();
                     userList.getItems().clear();
-                    userList.getItems().addAll(usernames);
+                    userList.getItems().add("Mọi người");
+                    for (String u : usernames) {
+                        if (!u.trim().isEmpty())
+                            userList.getItems().add(u.trim());
+                    }
+
+                    if (selected != null && userList.getItems().contains(selected)) {
+                        userList.getSelectionModel().select(selected);
+                    } else {
+                        userList.getSelectionModel().select("Mọi người");
+                    }
                 });
                 break;
         }
@@ -71,9 +103,20 @@ public class ChatController {
     @FXML
     public void handleSend(ActionEvent event) {
         String content = txtInput.getText();
-        if (content.isEmpty()) return;
-        ChatMessage msg = new ChatMessage(OpCode.CHAT_GROUP, myName, content);
-        client.sendMessage(msg);
+        if (content.isEmpty())
+            return;
+
+        String selectedUser = userList.getSelectionModel().getSelectedItem();
+        if (selectedUser != null && !selectedUser.equals("Mọi người") && !selectedUser.equals(myName)) {
+            // Gửi tin nhắn riêng (CHAT_MSG)
+            ChatMessage msg = new ChatMessage(OpCode.CHAT_MSG, myName, content);
+            msg.setReceiver(selectedUser);
+            client.sendMessage(msg);
+        } else {
+            // Gửi tin nhắn nhóm (CHAT_GROUP)
+            ChatMessage msg = new ChatMessage(OpCode.CHAT_GROUP, myName, content);
+            client.sendMessage(msg);
+        }
         txtInput.clear();
     }
 
@@ -87,7 +130,7 @@ public class ChatController {
 
         // Lấy IP của user được chọn
         String targetIP = getUserIP(selectedUser);
-        
+
         if (targetIP == null) {
             // Nếu không có IP, thử dùng localhost (cho test trên cùng máy)
             targetIP = "127.0.0.1";

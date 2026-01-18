@@ -108,8 +108,11 @@ public class ServerHandler implements Runnable {
                 break;
             case CHAT_MSG: // Chat 1-1
                 ServerHandler receiver = RAMStorage.onlineUsers.get(msg.getReceiver());
-                if (receiver != null)
+                if (receiver != null) {
                     receiver.send(msg);
+                    // Gửi ngược lại cho chính người gửi để họ thấy tin nhắn mình vừa nhắn
+                    this.send(msg);
+                }
                 break;
 
             // === [QUAN TRỌNG] ĐÃ SỬA PHẦN NÀY ĐỂ BẠN TỰ THẤY TIN NHẮN CỦA MÌNH ===
@@ -150,14 +153,14 @@ public class ServerHandler implements Runnable {
     private void broadcastUserList() {
         // Tạo danh sách users kèm IP: "user1:IP1,user2:IP2"
         String usersWithIP = RAMStorage.onlineUsers.entrySet().stream()
-            .map(entry -> {
-                String username = entry.getKey();
-                ServerHandler handler = entry.getValue();
-                String ip = handler.getClientIP();
-                return username + ":" + ip;
-            })
-            .collect(java.util.stream.Collectors.joining(","));
-        
+                .map(entry -> {
+                    String username = entry.getKey();
+                    ServerHandler handler = entry.getValue();
+                    String ip = handler.getClientIP();
+                    return username + ":" + ip;
+                })
+                .collect(java.util.stream.Collectors.joining(","));
+
         ChatMessage listMsg = new ChatMessage(OpCode.USER_LIST, "SERVER", usersWithIP);
         for (ServerHandler handler : RAMStorage.onlineUsers.values()) {
             try {

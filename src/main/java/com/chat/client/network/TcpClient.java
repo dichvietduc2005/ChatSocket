@@ -45,20 +45,20 @@ public class TcpClient {
     public boolean connect(String serverIP, int port, String username, boolean useSSL) {
         try {
             this.useSSL = useSSL;
-            
+
             if (useSSL) {
                 // SSL connection
                 var sslContext = SSLUtil.createClientSSLContext();
                 sslSocket = SSLUtil.createSSLSocket(serverIP, port, sslContext);
                 socket = sslSocket;
-                
+
                 // Đợi một chút để server tạo ObjectOutputStream trước
                 Thread.sleep(100);
-                
+
                 // Client tạo ObjectInputStream trước (để nhận header từ server)
                 in = new ObjectInputStream(sslSocket.getInputStream());
                 out = new ObjectOutputStream(sslSocket.getOutputStream());
-                
+
                 System.out.println("✓ Connected securely with cipher: " + sslSocket.getSession().getCipherSuite());
             } else {
                 // TCP thường
@@ -66,7 +66,7 @@ public class TcpClient {
                 out = new ObjectOutputStream(socket.getOutputStream());
                 in = new ObjectInputStream(socket.getInputStream());
             }
-            
+
             isRunning = true;
 
             // Gửi gói tin LOGIN ngay khi kết nối
@@ -231,10 +231,10 @@ public class TcpClient {
                         DatagramPacket pack = new DatagramPacket(buf, buf.length);
                         multicastSocket.receive(pack);
                         String rawMsg = new String(pack.getData(), 0, pack.getLength());
-                        
+
                         // Strip "ADMIN:" prefix if present
                         final String msg = rawMsg.startsWith("ADMIN:") ? rawMsg.substring(6) : rawMsg;
-                        
+
                         // Hiển thị trong TextArea (nếu có) hoặc console (nếu không có)
                         if (notificationArea != null) {
                             Platform.runLater(() -> notificationArea.appendText("🔔 ADMIN: " + msg + "\n"));
