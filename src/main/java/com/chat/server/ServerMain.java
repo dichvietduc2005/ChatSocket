@@ -5,8 +5,12 @@ import com.chat.server.core.ServerHandler;
 import com.chat.server.network.HttpFileServer;
 import com.chat.server.network.MulticastAdminServer;
 import com.chat.server.network.UdpDiscoveryServer;
-import com.chat.server.network.WebSocketServer; // Import WebSocket
+import com.chat.server.network.WebSocketServer;
+import com.chat.common.crypto.SSLUtil;
+import com.chat.common.protocol.NetworkConstants;
 
+import javax.net.ssl.SSLServerSocket;
+import javax.net.ssl.SSLSocket;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -61,30 +65,69 @@ public class ServerMain {
             new MulticastAdminServer().start();
         }).start();
 
-        // --- 6. KHỞI CHẠY CHAT SERVER (Main Thread) ---
-        // Server chạy ở Port 8888 để xử lý tin nhắn TCP
-        try (ServerSocket serverSocket = new ServerSocket(CHAT_PORT)) {
-            System.out.println("[Service] Chat Server is running on port " + CHAT_PORT);
-            System.out.println("[System] Waiting for clients...");
+        // --- 6. KHỞI CHẠY TCP CHAT SERVER (Port 8888) ---
+        // Server chạy ở Port 8888 để xử lý tin nhắn TCP thường (backward compatibility)
+        new Thread(() -> {
+            try (ServerSocket serverSocket = new ServerSocket(CHAT_PORT)) {
+                System.out.println("[Service] TCP Chat Server is running on port " + CHAT_PORT);
+                System.out.println("[System] Waiting for clients...");
 
-            while (true) {
-                try {
-                    Socket clientSocket = serverSocket.accept();
-                    System.out.println("New client connected: " + clientSocket.getInetAddress());
+                while (true) {
+                    try {
+                        Socket clientSocket = serverSocket.accept();
+                        System.out.println("New TCP client connected: " + clientSocket.getInetAddress());
 
-                    // Tạo handler cho client mới
-                    // Handler này đã tích hợp: Bot, Email, WebSocket Log
-                    ServerHandler handler = new ServerHandler(clientSocket);
-                    pool.execute(handler);
+                        ServerHandler handler = new ServerHandler(clientSocket);
+                        pool.execute(handler);
 
-                } catch (IOException e) {
-                    System.err.println("Accept failed: " + e.getMessage());
+                    } catch (IOException e) {
+                        System.err.println("Accept failed: " + e.getMessage());
+                    }
                 }
+            } catch (IOException e) {
+                System.err.println("Could not listen on port " + CHAT_PORT);
+                e.printStackTrace();
             }
-        } catch (IOException e) {
-            System.err.println("Could not listen on port " + CHAT_PORT);
-            e.printStackTrace();
-        } finally {
+        }).start();
+
+        // --- 7. KHỞI CHẠY SSL/TLS CHAT SERVER (Port 8889) ---
+        // Server chạy ở Port 8889 để xử lý tin nhắn SSL/TLS (mã hóa)
+        new Thread(() -> {
+            try {
+                System.out.println("[Service] Starting SSL/TLS Chat Server (Port " + NetworkConstants.TCP_SSL_PORT + ")...");
+                var sslContext = SSLUtil.createServerSSLContext("server.jks", "changeme");
+                SSLServerSocket sslServerSocket = SSLUtil.createSSLServerSocket(
+                    NetworkConstants.TCP_SSL_PORT,
+                    sslContext
+                );
+                System.out.println("[Service] SSL/TLS Chat Server is running on port " + NetworkConstants.TCP_SSL_PORT);
+
+                while (true) {
+                    try {
+                        SSLSocket sslClientSocket = (SSLSocket) sslServerSocket.accept();
+                        String cipherSuite = sslClientSocket.getSession().getCipherSuite();
+                        System.out.println("New SSL client connected from " + sslClientSocket.getInetAddress() +
+                                                 " using cipher: " + cipherSuite);
+
+                        ServerHandler handler = new ServerHandler(sslClientSocket);
+                        pool.execute(handler);
+
+                    } catch (Exception e) {
+                        System.err.println("Error accepting SSL client: " + e.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("Failed to create SSL socket: " + e.getMessage());
+                System.err.println("Make sure server.jks exists. Run 'create-keystore.bat' first.");
+                System.err.println("SSL/TLS server will not be available.");
+            }
+        }).start();
+
+        // Main thread chờ để giữ server chạy
+        try {
+            Thread.sleep(Long.MAX_VALUE);
+        } catch (InterruptedException e) {
+            System.out.println("Server shutting down...");
             pool.shutdown();
         }
     }

@@ -26,8 +26,12 @@ public class ChatController {
     public void setClient(TcpClient client, String name) {
         this.client = client;
         this.myName = name;
-        client.startMulticastListener(txtNotification);
+        // Multicast listener sẽ được khởi động từ ConnectController
         client.setOnMessageReceived(this::processMessage);
+    }
+
+    public TextArea getNotificationArea() {
+        return txtNotification;
     }
 
     private void processMessage(ChatMessage msg) {
