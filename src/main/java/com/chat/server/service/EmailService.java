@@ -10,9 +10,9 @@ public class EmailService {
 
     // --- CẤU HÌNH SMTP GMAIL ---
     // Lưu ý: Bạn cần thay đổi 2 dòng dưới đây thành thông tin thật của bạn
-    private static final String SENDER_EMAIL = "your_email@gmail.com"; 
-    private static final String SENDER_PASSWORD = "xxxx xxxx xxxx xxxx"; // Mật khẩu ứng dụng (App Password) - 16 ký tự
-    
+    private static final String SENDER_EMAIL = "trognghia648@gmail.com"; 
+    private static final String SENDER_PASSWORD = "medt vntj mwhw yipl"; // Mật khẩu ứng dụng (App Password) - 16 ký tự
+
     private static final String SMTP_HOST = "smtp.gmail.com";
     private static final String SMTP_PORT = "587"; // Port cho TLS
 
@@ -80,10 +80,10 @@ public class EmailService {
         });
 
         // Tạo message
-        Message message = new MimeMessage(session);
+        MimeMessage message = new MimeMessage(session);
         message.setFrom(new InternetAddress(SENDER_EMAIL));
         message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(toEmail));
-        message.setSubject(subject);
+        message.setSubject(subject, "utf-8");
         message.setContent(htmlBody, "text/html; charset=utf-8"); // Gửi dưới dạng HTML utf-8
 
         // Gửi đi
@@ -95,17 +95,6 @@ public class EmailService {
      * Trong thực tế, bạn sẽ query SQL ở đây.
      */
     private static String getEmailByUsername(String username) {
-        // TODO: Thay thế bằng logic lấy từ Database thật
-        
-        // Để test: Luôn trả về email của chính bạn để bạn nhận được thông báo
-        // return "email_cua_ban_để_nhận_thử@gmail.com";
-        
-        // Logic giả định:
-        if ("admin".equalsIgnoreCase(username)) return "admin@chatsocket.com";
-        if ("hacker".equalsIgnoreCase(username)) return "security@chatsocket.com";
-        
-        // Mặc định trả về null nếu không tìm thấy
-        // (Hoặc trả về email cá nhân của bạn để test tính năng)
-        return "test_receiver@gmail.com"; 
+        return "dvd192005@gmail.com"; 
     }
 }

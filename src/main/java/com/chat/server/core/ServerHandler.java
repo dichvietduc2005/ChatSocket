@@ -2,7 +2,7 @@ package com.chat.server.core;
 
 import com.chat.common.model.ChatMessage;
 import com.chat.common.protocol.OpCode;
-// import com.chat.server.service.EmailService; // Tạm tắt nếu chưa có class này
+import com.chat.server.service.EmailService;
 import com.chat.grpc.CensorProto;
 import com.chat.grpc.CensorServiceGrpc;
 import io.grpc.ManagedChannel;
@@ -131,7 +131,31 @@ public class ServerHandler implements Runnable {
 
             case CHAT_MSG: // Chat Riêng 1-1
                 if (msg.getReceiver() != null) {
-                    ServerManager.sendPrivate(msg, msg.getReceiver(), this);
+                    boolean isOnline = ServerManager.sendPrivate(msg, msg.getReceiver(), this);
+                    
+                    if (!isOnline) {
+                        // Nếu user không online -> Gửi Email cảnh báo
+                        System.out.println("User " + msg.getReceiver() + " is offline. Sending email...");
+                        
+                        // Gọi EmailService
+                        EmailService.sendOfflineNotification(
+                            msg.getReceiver(), 
+                            msg.getSender(), 
+                            msg.getContent()
+                        );
+                        
+                        String warningText = "[SYSTEM] " + msg.getReceiver() + " đang OFFLINE.\n" +
+                                             "Tin nhắn này và các tin nhắn tiếp theo sẽ được chuyển tiếp qua Email.";
+                        
+                        // Gửi tin nhắn hệ thống về cho chính người gửi (this)
+                        ChatMessage notify = new ChatMessage(
+                            OpCode.CHAT_MSG, 
+                            msg.getReceiver(),     // Tên người gửi là Hệ thống
+                            msg.getSender(), // Người nhận là chính mình
+                            warningText
+                        );
+                        this.send(notify);
+                    }
                 } else {
                     // Nếu lỗi client gửi private mà không có người nhận -> chuyển thành Broadcast
                     msg.setOpCode(OpCode.CHAT_GROUP);
