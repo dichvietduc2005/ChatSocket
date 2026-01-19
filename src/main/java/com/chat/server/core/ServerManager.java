@@ -42,12 +42,10 @@ public class ServerManager {
 
     // Gửi tin nhắn riêng
     public static void sendPrivate(ChatMessage msg, String receiverName, ServerHandler sender) {
-        boolean found = false;
         for (ServerHandler client : clients) {
             if (client.getUsername() != null && client.getUsername().equals(receiverName)) {
                 client.send(msg);
                 sender.send(msg); // Gửi lại cho người gửi để họ thấy
-                found = true;
                 break;
             }
         }
@@ -56,10 +54,10 @@ public class ServerManager {
     // Gửi danh sách user online
     public static void broadcastUserList() {
         StringBuilder sb = new StringBuilder();
-        // Luôn thêm Chat Tổng vào đầu
         for (ServerHandler client : clients) {
             if (client.getUsername() != null) {
-                sb.append(client.getUsername()).append(":OK,");
+                String ip = client.getClientIP();
+                sb.append(client.getUsername()).append(":").append(ip).append(",");
             }
         }
         String content = sb.length() > 0 ? sb.substring(0, sb.length() - 1) : "";

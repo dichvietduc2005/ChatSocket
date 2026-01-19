@@ -28,17 +28,21 @@ import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 
+import com.chat.common.crypto.SSLUtil;
+import com.chat.common.protocol.NetworkConstants;
+import com.chat.client.network.UdpDiscovery;
 import java.io.*;
-import java.net.Socket;
-import java.net.SocketException;
+import java.net.*;
 import java.util.HashMap;
 import java.util.Map;
+import javax.net.ssl.SSLSocket;
+import java.awt.Toolkit;
 
 public class ClientMain extends Application {
 
     // --- CẤU HÌNH ---
     private static final String SERVER_HOST = "localhost";
-    private static final int SERVER_PORT = 8888;
+    private static final int SERVER_PORT = 8889; // SSL/TLS Port
     private static final String UPLOAD_API_URL = "http://localhost:8080/upload";
     private static final String CHAT_GENERAL_KEY = "📢 CHAT TỔNG";
 
@@ -49,31 +53,102 @@ public class ClientMain extends Application {
     private TextField inputField;
     private Label statusLabel;
     private Label currentTargetLabel;
+    private Button buzzBtn;
     
     // --- DATA ---
     private Map<String, ObservableList<ChatMessage>> conversations = new HashMap<>();
     private ObservableList<String> onlineUsers = FXCollections.observableArrayList();
     private String currentReceiver = null; 
+    private Map<String, String> userIpMap = new HashMap<>();
+    private String serverHost = SERVER_HOST;
+    private int serverPort = SERVER_PORT;
     
     // --- NETWORK ---
-    private Socket socket;
+    private SSLSocket sslSocket;
     private ObjectOutputStream out;
     private ObjectInputStream in;
     private String username;
+    
+    // --- BUZZ ---
+    private DatagramSocket buzzSocket;
 
     @Override
     public void start(Stage primaryStage) {
         this.mainStage = primaryStage;
 
-        // 1. Dialog Login
-        TextInputDialog dialog = new TextInputDialog("User" + (int)(Math.random() * 999));
+        // 1. Dialog Login với hiển thị IP/Port
+        Dialog<String> dialog = new Dialog<>();
         dialog.setTitle("Đăng nhập");
-        dialog.setHeaderText("Hệ thống Chat Pro");
-        dialog.setContentText("Nhập tên hiển thị:");
+        dialog.setHeaderText("Hệ thống Chat Pro (SSL/TLS)");
         
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(20, 150, 10, 10));
+        
+        TextField usernameField = new TextField("User" + (int)(Math.random() * 999));
+        usernameField.setPromptText("Nhập tên hiển thị");
+        
+        Label ipLabel = new Label("Server IP:");
+        TextField ipField = new TextField(serverHost);
+        ipField.setEditable(true);
+        
+        Label portLabel = new Label("Server Port:");
+        TextField portField = new TextField(String.valueOf(serverPort));
+        portField.setEditable(true);
+        
+        Label infoLabel = new Label("Kết nối SSL/TLS mã hóa \n đang tìm server trong mạng nội bộ...");
+        infoLabel.setStyle("-fx-text-fill: #0084ff; -fx-font-weight: bold;");
+        
+        grid.add(new Label("Tên hiển thị:"), 0, 0);
+        grid.add(usernameField, 1, 0);
+        grid.add(ipLabel, 0, 1);
+        grid.add(ipField, 1, 1);
+        grid.add(portLabel, 0, 2);
+        grid.add(portField, 1, 2);
+        grid.add(infoLabel, 0, 3, 2, 1);
+        
+        ButtonType loginButtonType = new ButtonType("Kết nối", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(loginButtonType, ButtonType.CANCEL);
+        dialog.getDialogPane().setContent(grid);
+        
+        Platform.runLater(() -> usernameField.requestFocus());
+        
+        dialog.setResultConverter(dialogButton -> {
+            if (dialogButton == loginButtonType) {
+                return usernameField.getText();
+            }
+            return null;
+        });
+        
+        // Tự động tìm Server qua UDP Discovery (prefill IP/Port nếu tìm thấy)
+        UdpDiscovery.discoverServer().thenAccept(addr -> {
+            Platform.runLater(() -> {
+                if (addr != null && addr.contains(":")) {
+                    String[] parts = addr.split(":");
+                    ipField.setText(parts[0]);
+                    // Nếu server trả TCP (8888), tự động chuyển sang SSL (8889)
+                    if (parts.length > 1 && parts[1].equals(String.valueOf(NetworkConstants.TCP_PORT))) {
+                        portField.setText(String.valueOf(NetworkConstants.TCP_SSL_PORT));
+                    } else if (parts.length > 1) {
+                        portField.setText(parts[1]);
+                    }
+                    infoLabel.setText("Đã tìm thấy server: " + ipField.getText() + ":" + portField.getText());
+                } else {
+                    infoLabel.setText("Không tìm thấy tự động. Bạn có thể nhập IP/Port.");
+                }
+            });
+        });
+
         var result = dialog.showAndWait();
-        if (result.isPresent()) {
-            username = result.get();
+        if (result.isPresent() && !result.get().trim().isEmpty()) {
+            username = result.get().trim();
+            serverHost = ipField.getText().trim().isEmpty() ? SERVER_HOST : ipField.getText().trim();
+            try {
+                serverPort = Integer.parseInt(portField.getText().trim());
+            } catch (NumberFormatException ex) {
+                serverPort = SERVER_PORT;
+            }
         } else {
             return;
         }
@@ -137,6 +212,11 @@ public class ClientMain extends Application {
                     currentTargetLabel.setTextFill(Color.web("#6200ea"));
                 }
                 switchChatData(newVal); // Giờ gọi hàm này an toàn rồi vì chatWindow đã có
+                
+                // Enable/Disable nút Buzz
+                if (buzzBtn != null) {
+                    buzzBtn.setDisable(currentReceiver == null || newVal.equals(CHAT_GENERAL_KEY) || newVal.equals(username));
+                }
             }
         });
 
@@ -161,6 +241,12 @@ public class ClientMain extends Application {
         fileBtn.setTooltip(new Tooltip("Gửi file hoặc ảnh"));
         fileBtn.setOnAction(e -> selectAndUploadFile(primaryStage));
         
+        buzzBtn = new Button("🔔 BUZZ");
+        buzzBtn.setStyle("-fx-background-color: transparent; -fx-font-size: 16px; -fx-cursor: hand; -fx-text-fill: #ff4444; -fx-font-weight: bold;");
+        buzzBtn.setTooltip(new Tooltip("Rung cửa sổ người nhận"));
+        buzzBtn.setOnAction(e -> sendBuzz());
+        buzzBtn.setDisable(true); // Chỉ enable khi chọn user riêng
+        
         inputField = new TextField();
         inputField.setPromptText("Nhập tin nhắn...");
         inputField.setStyle("-fx-background-radius: 20px; -fx-padding: 10px; -fx-background-color: #f0f2f5;");
@@ -171,7 +257,7 @@ public class ClientMain extends Application {
         sendBtn.setStyle("-fx-background-color: #0084ff; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 20px;");
         sendBtn.setOnAction(e -> sendMessage());
 
-        bottomBox.getChildren().addAll(fileBtn, inputField, sendBtn);
+        bottomBox.getChildren().addAll(fileBtn, buzzBtn, inputField, sendBtn);
         root.setBottom(bottomBox);
 
         // 3. Kết nối
@@ -195,18 +281,30 @@ public class ClientMain extends Application {
     }
 
     // --- NETWORK LOGIC ---
-    // [CẬP NHẬT] Xử lý đóng kết nối êm đẹp
+    // [CẬP NHẬT] Xử lý đóng kết nối êm đẹp - SSL/TLS
     private void connectToServer() {
         try {
-            socket = new Socket(SERVER_HOST, SERVER_PORT);
-            out = new ObjectOutputStream(socket.getOutputStream());
-            in = new ObjectInputStream(socket.getInputStream());
+            // Kết nối SSL/TLS
+            var sslContext = SSLUtil.createClientSSLContext();
+            sslSocket = SSLUtil.createSSLSocket(serverHost, serverPort, sslContext);
+            
+            // Đợi một chút để SSL handshake hoàn tất
+            Thread.sleep(100);
+            
+            // Tạo streams
+            in = new ObjectInputStream(sslSocket.getInputStream());
+            out = new ObjectOutputStream(sslSocket.getOutputStream());
+            
+            System.out.println("✓ Connected securely with cipher: " + sslSocket.getSession().getCipherSuite());
 
             out.writeObject(new ChatMessage(OpCode.LOGIN, username, null, null));
             out.flush();
 
+            // Khởi động Buzz listener
+            initBuzzListener();
+            
             // Vòng lặp lắng nghe tin nhắn
-            while (!socket.isClosed()) {
+            while (sslSocket != null && !sslSocket.isClosed()) {
                 try {
                     Object obj = in.readObject();
                     if (obj instanceof ChatMessage) {
@@ -227,7 +325,7 @@ public class ClientMain extends Application {
                     }
                 } catch (SocketException e) {
                     // [QUAN TRỌNG] Nếu socket đã đóng (do mình tắt app) thì thoát vòng lặp êm đẹp
-                    if (socket.isClosed()) {
+                    if (sslSocket != null && sslSocket.isClosed()) {
                         System.out.println("🔴 Kết nối đã đóng.");
                         break; 
                     } else {
@@ -236,17 +334,21 @@ public class ClientMain extends Application {
                 } catch (EOFException e) {
                     // Server ngắt kết nối đột ngột
                     Platform.runLater(() -> {
-                        statusLabel.setText("🔴 Disconnected");
-                        statusLabel.setStyle("-fx-text-fill: red;");
+                        if (statusLabel != null) {
+                            statusLabel.setText("🔴 Disconnected");
+                            statusLabel.setStyle("-fx-text-fill: red;");
+                        }
                     });
                     break;
                 }
             }
         } catch (Exception e) {
             // Chỉ in lỗi nếu socket chưa đóng (Lỗi kết nối thật sự)
-            if (socket != null && !socket.isClosed()) {
+            if (sslSocket != null && !sslSocket.isClosed()) {
                 e.printStackTrace();
             }
+        } finally {
+            stopBuzzListener();
         }
     }
 
@@ -263,13 +365,17 @@ public class ClientMain extends Application {
     private void updateUserList(String userStr) {
         if (userStr == null || userStr.isEmpty()) return;
         Platform.runLater(() -> {
+            userIpMap.clear();
             String selected = userListWindow.getSelectionModel().getSelectedItem();
             onlineUsers.clear();
             onlineUsers.add(CHAT_GENERAL_KEY);
             String[] users = userStr.split(",");
             for (String u : users) {
                 if (u.contains(":")) {
-                    String name = u.split(":")[0];
+                    String[] parts = u.split(":");
+                    String name = parts[0];
+                    String ip = parts.length > 1 ? parts[1] : "127.0.0.1";
+                    userIpMap.put(name, ip);
                     if (!onlineUsers.contains(name)) onlineUsers.add(name);
                 }
             }
@@ -317,9 +423,103 @@ public class ClientMain extends Application {
                 out.writeObject(new ChatMessage(OpCode.LOGOUT, username, null, null));
                 out.flush();
             }
-            if (socket != null) socket.close();
+            if (sslSocket != null) sslSocket.close();
+            stopBuzzListener();
         } catch (Exception e) {}
         System.exit(0);
+    }
+    
+    // --- BUZZ FUNCTIONS ---
+    private void initBuzzListener() {
+        try {
+            buzzSocket = new DatagramSocket(NetworkConstants.UDP_BUZZ_PORT);
+            new Thread(this::listenForBuzz).start();
+            System.out.println("✓ Buzz listener started on port " + NetworkConstants.UDP_BUZZ_PORT);
+        } catch (SocketException e) {
+            System.err.println("⚠ Không thể khởi động Buzz Listener: Port " + NetworkConstants.UDP_BUZZ_PORT + " đã bị chiếm.");
+        }
+    }
+    
+    private void listenForBuzz() {
+        byte[] buffer = new byte[1024];
+        DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+        while (buzzSocket != null && !buzzSocket.isClosed()) {
+            try {
+                buzzSocket.receive(packet);
+                String msg = new String(packet.getData(), 0, packet.getLength()).trim();
+                if ("BUZZ".equals(msg)) {
+                    Platform.runLater(() -> vibrateWindow(mainStage));
+                    playBuzzSound();
+                }
+            } catch (IOException e) {
+                if (!buzzSocket.isClosed()) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+    
+    private void sendBuzz() {
+        if (currentReceiver == null || currentReceiver.equals(CHAT_GENERAL_KEY)) {
+            Alert alert = new Alert(Alert.AlertType.WARNING);
+            alert.setTitle("Buzz");
+            alert.setHeaderText(null);
+            alert.setContentText("Vui lòng chọn một người để BUZZ!");
+            alert.showAndWait();
+            return;
+        }
+        
+        // Lấy IP từ user list (fallback localhost)
+        String targetIP = userIpMap.getOrDefault(currentReceiver, "127.0.0.1");
+        
+        try (DatagramSocket socket = new DatagramSocket()) {
+            byte[] data = "BUZZ".getBytes();
+            DatagramPacket packet = new DatagramPacket(data, data.length, 
+                    InetAddress.getByName(targetIP), NetworkConstants.UDP_BUZZ_PORT);
+            socket.send(packet);
+            System.out.println(">>> Đã gửi BUZZ tới " + currentReceiver + " (" + targetIP + ")");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    private void vibrateWindow(Stage stage) {
+        if (stage == null) return;
+        double originalX = stage.getX();
+        double originalY = stage.getY();
+
+        new Thread(() -> {
+            try {
+                for (int i = 0; i < 10; i++) {
+                    Platform.runLater(() -> {
+                        stage.setX(originalX + (Math.random() * 10 - 5));
+                        stage.setY(originalY + (Math.random() * 10 - 5));
+                    });
+                    Thread.sleep(50);
+                }
+                Platform.runLater(() -> {
+                    stage.setX(originalX);
+                    stage.setY(originalY);
+                });
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }).start();
+        System.out.println(">>> BUZZZZ !!!! Rung man hinh!");
+    }
+    
+    private void playBuzzSound() {
+        try {
+            Toolkit.getDefaultToolkit().beep();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    private void stopBuzzListener() {
+        if (buzzSocket != null && !buzzSocket.isClosed()) {
+            buzzSocket.close();
+        }
     }
 
     public static void main(String[] args) {
