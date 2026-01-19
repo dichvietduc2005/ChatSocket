@@ -51,6 +51,13 @@ public class ServerHandler implements Runnable {
         this.socket = sslSocket;
     }
     
+    public String getClientIP() {
+        if (socket != null && !socket.isClosed()) {
+            return socket.getInetAddress().getHostAddress();
+        }
+        return "127.0.0.1";
+    }
+    
     public String getUsername() {
         return username;
     }

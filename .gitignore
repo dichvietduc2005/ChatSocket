@@ -44,3 +44,4 @@ server.cer
 *.tmp
 *.bak
 *.old
+.server_files/

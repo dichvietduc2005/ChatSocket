@@ -11,14 +11,10 @@ import com.chat.common.protocol.NetworkConstants;
 
 import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLSocket;
-import java.io.IOException;
-import java.net.ServerSocket;
-import java.net.Socket;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class ServerMain {
-    private static final int CHAT_PORT = 8888;
     private static final int MAX_THREADS = 100;
 
     public static void main(String[] args) {
@@ -65,33 +61,8 @@ public class ServerMain {
             new MulticastAdminServer().start();
         }).start();
 
-        // --- 6. KHỞI CHẠY TCP CHAT SERVER (Port 8888) ---
-        // Server chạy ở Port 8888 để xử lý tin nhắn TCP thường (backward compatibility)
-        new Thread(() -> {
-            try (ServerSocket serverSocket = new ServerSocket(CHAT_PORT)) {
-                System.out.println("[Service] TCP Chat Server is running on port " + CHAT_PORT);
-                System.out.println("[System] Waiting for clients...");
-
-                while (true) {
-                    try {
-                        Socket clientSocket = serverSocket.accept();
-                        System.out.println("New TCP client connected: " + clientSocket.getInetAddress());
-
-                        ServerHandler handler = new ServerHandler(clientSocket);
-                        pool.execute(handler);
-
-                    } catch (IOException e) {
-                        System.err.println("Accept failed: " + e.getMessage());
-                    }
-                }
-            } catch (IOException e) {
-                System.err.println("Could not listen on port " + CHAT_PORT);
-                e.printStackTrace();
-            }
-        }).start();
-
-        // --- 7. KHỞI CHẠY SSL/TLS CHAT SERVER (Port 8889) ---
-        // Server chạy ở Port 8889 để xử lý tin nhắn SSL/TLS (mã hóa)
+        // --- 6. KHỞI CHẠY SSL/TLS CHAT SERVER (Port 8889) ---
+        // Server CHỈ chạy SSL/TLS (mã hóa) - Đã bỏ TCP thường để đảm bảo bảo mật
         new Thread(() -> {
             try {
                 System.out.println("[Service] Starting SSL/TLS Chat Server (Port " + NetworkConstants.TCP_SSL_PORT + ")...");
