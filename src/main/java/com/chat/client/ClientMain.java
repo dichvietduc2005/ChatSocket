@@ -35,6 +35,8 @@ import java.io.*;
 import java.net.*;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
 import javax.net.ssl.SSLSocket;
 import java.awt.Toolkit;
 
@@ -58,6 +60,7 @@ public class ClientMain extends Application {
     // --- DATA ---
     private Map<String, ObservableList<ChatMessage>> conversations = new HashMap<>();
     private ObservableList<String> onlineUsers = FXCollections.observableArrayList();
+    private Set<String> currentOnlineSet = new HashSet<>();
     private String currentReceiver = null; 
     private Map<String, String> userIpMap = new HashMap<>();
     private String serverHost = SERVER_HOST;
@@ -364,25 +367,46 @@ public class ClientMain extends Application {
 
     private void updateUserList(String userStr) {
         if (userStr == null || userStr.isEmpty()) return;
+        
         Platform.runLater(() -> {
-            userIpMap.clear();
             String selected = userListWindow.getSelectionModel().getSelectedItem();
-            onlineUsers.clear();
-            onlineUsers.add(CHAT_GENERAL_KEY);
+
+            // 1. Xóa danh sách trạng thái online (Set) để cập nhật mới
+            currentOnlineSet.clear();
+            currentOnlineSet.add(CHAT_GENERAL_KEY);
+
+            userIpMap.clear();
+
+            // 2. Parse danh sách từ Server để biết ai ĐANG online
             String[] users = userStr.split(",");
             for (String u : users) {
                 if (u.contains(":")) {
                     String[] parts = u.split(":");
                     String name = parts[0];
                     String ip = parts.length > 1 ? parts[1] : "127.0.0.1";
+                    
                     userIpMap.put(name, ip);
-                    if (!onlineUsers.contains(name)) onlineUsers.add(name);
+                    currentOnlineSet.add(name); // Đánh dấu người này đang xanh (online)
                 }
             }
+
+            for (String activeUser : currentOnlineSet) {
+                if (!onlineUsers.contains(activeUser)) {
+                    onlineUsers.add(activeUser);
+                }
+            }
+
+            // 4. Force Refresh để CellFactory vẽ lại màu (Xanh -> Đỏ hoặc Đỏ -> Xanh)
+            userListWindow.refresh();
+
+            // 5. Giữ lại lựa chọn cũ
             if (selected != null && onlineUsers.contains(selected)) {
                 userListWindow.getSelectionModel().select(selected);
             } else {
-                userListWindow.getSelectionModel().select(0);
+                // Nếu chưa chọn gì thì chọn Chat Tổng
+                if (userListWindow.getSelectionModel().getSelectedItem() == null) {
+                    userListWindow.getSelectionModel().select(0);
+                }
             }
         });
     }
@@ -538,11 +562,21 @@ public class ClientMain extends Application {
                 if (item.equals(CHAT_GENERAL_KEY)) {
                     nameLabel.setStyle("-fx-font-weight: bold; -fx-text-fill: #0084ff;");
                     statusDot.setFill(Color.ORANGE);
-                } else if (item.equals(username)) {
-                    nameLabel.setText(item + " (Bạn)");
-                    nameLabel.setStyle("-fx-font-style: italic; -fx-text-fill: #888;");
+                } else if (currentOnlineSet.contains(item)) {
+                    statusDot.setFill(Color.LIMEGREEN); // Online: Màu Xanh
+                    nameLabel.setStyle("-fx-text-fill: #000;"); // Chữ đen
+                    
+                    if (item.equals(username)) {
+                        nameLabel.setText(item + " (Bạn)");
+                        nameLabel.setStyle("-fx-font-style: italic; -fx-text-fill: #888;");
+                    }
+                }else {
+                    // Offline: Màu Đỏ
+                    statusDot.setFill(Color.RED); 
+                    nameLabel.setStyle("-fx-text-fill: #999;"); // Chữ xám mờ
                 }
-                box.getChildren().addAll(statusDot, nameLabel); setGraphic(box);
+                box.getChildren().addAll(statusDot, nameLabel); 
+                setGraphic(box);
             }
         }
     }

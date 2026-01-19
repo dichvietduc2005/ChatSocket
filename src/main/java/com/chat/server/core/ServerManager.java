@@ -41,14 +41,17 @@ public class ServerManager {
     }
 
     // Gửi tin nhắn riêng
-    public static void sendPrivate(ChatMessage msg, String receiverName, ServerHandler sender) {
+    public static boolean sendPrivate(ChatMessage msg, String receiverName, ServerHandler sender) {
+        boolean found = false;
         for (ServerHandler client : clients) {
             if (client.getUsername() != null && client.getUsername().equals(receiverName)) {
                 client.send(msg);
-                sender.send(msg); // Gửi lại cho người gửi để họ thấy
+                sender.send(msg); 
+                found = true;
                 break;
             }
         }
+        return found;
     }
 
     // Gửi danh sách user online
