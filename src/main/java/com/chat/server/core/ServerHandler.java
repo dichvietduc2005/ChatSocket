@@ -50,14 +50,14 @@ public class ServerHandler implements Runnable {
         this.sslSocket = sslSocket;
         this.socket = sslSocket;
     }
-    
+
     public String getClientIP() {
         if (socket != null && !socket.isClosed()) {
             return socket.getInetAddress().getHostAddress();
         }
         return "127.0.0.1";
     }
-    
+
     public String getUsername() {
         return username;
     }
@@ -72,7 +72,7 @@ public class ServerHandler implements Runnable {
                 out = new ObjectOutputStream(socket.getOutputStream());
                 in = new ObjectInputStream(socket.getInputStream());
             }
-            
+
             // Đăng ký kết nối (nhưng chưa có tên)
             ServerManager.addClient(this);
 
@@ -81,14 +81,25 @@ public class ServerHandler implements Runnable {
                     Object obj = in.readObject();
                     if (obj instanceof ChatMessage) {
                         ChatMessage msg = (ChatMessage) obj;
+                        if (msg.getOpCode() == OpCode.LOGOUT) {
+                            System.out.println("[System] Người dùng chủ động đăng xuất: " + username);
+                            break;
+                        }
                         handleMessage(msg);
                     }
-                } catch (EOFException | SocketException e) {
-                    break; // Client ngắt kết nối
+                } catch (SocketException e) {
+                    System.err.println("[!!!] Mất kết nối đột ngột (SocketException) với: "
+                            + (username != null ? username : "Unknown"));
+                    com.chat.server.network.WebSocketServer.broadcastLog("System: Connection reset for " + username);
+                    break;
+                } catch (EOFException e) {
+                    System.err.println("[!!!] Luồng dữ liệu bị ngắt quãng (EOF) với: "
+                            + (username != null ? username : "Unknown"));
+                    break;
                 }
             }
         } catch (IOException | ClassNotFoundException e) {
-            // e.printStackTrace();
+            System.err.println("[Network] Error in ServerHandler for " + username + ": " + e.getMessage());
         } finally {
             closeConnection();
         }
@@ -106,16 +117,17 @@ public class ServerHandler implements Runnable {
             case LOGIN:
                 this.username = msg.getSender();
                 System.out.println("User logged in: " + username);
-                
+
                 // Cập nhật danh sách Online cho mọi người
                 ServerManager.broadcastUserList();
-                
+
                 // [QUAN TRỌNG] Gửi lại 50 tin nhắn lịch sử cho người mới vào
                 ServerManager.sendHistoryTo(this);
                 break;
 
             case LOGOUT:
-                throw new SocketException("User logged out"); // Thoát vòng lặp để xuống finally
+                // Sẽ được xử lý ở vòng lặp run()
+                break;
 
             case CHAT_MSG: // Chat Riêng 1-1
                 if (msg.getReceiver() != null) {
@@ -130,7 +142,7 @@ public class ServerHandler implements Runnable {
             case CHAT_GROUP: // Chat Tổng (Broadcast)
                 ServerManager.broadcast(msg, this);
                 break;
-                
+
             default:
                 break;
         }
@@ -150,11 +162,13 @@ public class ServerHandler implements Runnable {
 
     // Logic gọi sang gRPC Bot để lọc từ bậy
     private String filterProfanity(String originalText) {
-        if (originalText == null || censorStub == null) return originalText;
+        if (originalText == null || censorStub == null)
+            return originalText;
         try {
             // Chỉ lọc Text, không lọc URL ảnh/file (tránh làm hỏng link)
-            if (originalText.startsWith("http")) return originalText;
-            
+            if (originalText.startsWith("http"))
+                return originalText;
+
             CensorProto.TextRequest request = CensorProto.TextRequest.newBuilder()
                     .setText(originalText)
                     .build();
@@ -170,12 +184,16 @@ public class ServerHandler implements Runnable {
     }
 
     private void closeConnection() {
-        System.out.println("Client disconnected: " + (username != null ? username : "Unknown"));
+        System.out.println("[Cleanup] Đang giải phóng tài nguyên cho: " + (username != null ? username : "Unknown"));
         ServerManager.removeClient(this); // Xóa khỏi danh sách quản lý
         try {
-            if (in != null) in.close();
-            if (out != null) out.close();
-            if (socket != null) socket.close();
-        } catch (IOException e) {}
+            if (in != null)
+                in.close();
+            if (out != null)
+                out.close();
+            if (socket != null)
+                socket.close();
+        } catch (IOException e) {
+        }
     }
 }
