@@ -22,6 +22,7 @@ public class ServerHandler implements Runnable {
     private ObjectOutputStream out;
     private ObjectInputStream in;
     private String username;
+    private String userEmail; // [MỚI] Email người dùng (để gửi tin offline)
 
     // --- CẤU HÌNH GRPC CENSOR BOT ---
     private static ManagedChannel censorChannel;
@@ -60,6 +61,10 @@ public class ServerHandler implements Runnable {
 
     public String getUsername() {
         return username;
+    }
+
+    public String getUserEmail() { // [MỚI]
+        return userEmail;
     }
 
     @Override
@@ -128,7 +133,8 @@ public class ServerHandler implements Runnable {
         switch (msg.getOpCode()) {
             case LOGIN:
                 this.username = msg.getSender();
-                System.out.println("User logged in: " + username);
+                this.userEmail = msg.getSenderEmail(); // [MỚI] Lưu email từ client
+                System.out.println("User logged in: " + username + " (Email: " + userEmail + ")");
 
                 // Cập nhật danh sách Online cho mọi người
                 ServerManager.broadcastUserList();
@@ -149,12 +155,23 @@ public class ServerHandler implements Runnable {
                         // Nếu user không online -> Gửi Email cảnh báo
                         System.out.println("User " + msg.getReceiver() + " is offline. Sending email...");
                         
-                        // Gọi EmailService
-                        EmailService.sendOfflineNotification(
-                            msg.getReceiver(), 
-                            msg.getSender(), 
-                            msg.getContent()
-                        );
+                        // [CẬP NHẬT] Gửi email tới địa chỉ email của receiver (lưu trong message)
+                        String receiverEmail = msg.getSenderEmail(); // Email receiver được set từ sendPrivate
+                        if (receiverEmail != null && !receiverEmail.trim().isEmpty()) {
+                            EmailService.sendOfflineNotification(
+                                msg.getReceiver(), 
+                                msg.getSender(), 
+                                msg.getContent(),
+                                receiverEmail
+                            );
+                        } else {
+                            // Fallback nếu không có email
+                            EmailService.sendOfflineNotification(
+                                msg.getReceiver(), 
+                                msg.getSender(), 
+                                msg.getContent()
+                            );
+                        }
                         
                         String warningText = "[SYSTEM] " + msg.getReceiver() + " đang OFFLINE.\n" +
                                              "Tin nhắn này và các tin nhắn tiếp theo sẽ được chuyển tiếp qua Email.";

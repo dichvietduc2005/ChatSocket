@@ -17,6 +17,7 @@ public class ChatMessage implements Serializable {
     private String receiver; // Người nhận (Username/Email hoặc GroupId)
     private String content; // Nội dung tin nhắn
     private LocalDateTime timestamp; // Thời gian gửi
+    private String senderEmail; // [MỚI] Email của người gửi (để gửi tin nhắn offline qua mail)
 
     // Constructor đầy đủ
     public ChatMessage(OpCode opCode, String sender, String receiver, String content) {
@@ -67,6 +68,14 @@ public class ChatMessage implements Serializable {
 
     public LocalDateTime getTimestamp() {
         return timestamp;
+    }
+
+    public String getSenderEmail() {
+        return senderEmail;
+    }
+
+    public void setSenderEmail(String senderEmail) {
+        this.senderEmail = senderEmail;
     }
 
     @Override
