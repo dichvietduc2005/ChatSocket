@@ -106,6 +106,18 @@ public class ServerHandler implements Runnable {
     }
 
     private void handleMessage(ChatMessage msg) throws IOException {
+        try {
+            String logContent = String.format("User [%s] sent [%s]: %s", 
+                msg.getSender(), 
+                msg.getOpCode(), 
+                msg.getContent());
+            
+            // Gọi sang WebSocketServer để đẩy tin nhắn xuống trình duyệt
+            com.chat.server.network.WebSocketServer.broadcastLog(logContent);
+        } catch (Exception e) {
+            System.err.println("Lỗi gửi log WebSocket: " + e.getMessage());
+        }
+
         // [1. LỌC TỪ BẬY]
         if (msg.getContent() != null && !msg.getContent().isEmpty()) {
             String cleanMsg = filterProfanity(msg.getContent());
