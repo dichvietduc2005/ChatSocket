@@ -42,15 +42,24 @@ public class ServerManager {
 
     // Gửi tin nhắn riêng
     public static boolean sendPrivate(ChatMessage msg, String receiverName, ServerHandler sender) {
+        String receiverEmail = null; // [MỚI] Lấy email của người nhận
         boolean found = false;
+        
         for (ServerHandler client : clients) {
             if (client.getUsername() != null && client.getUsername().equals(receiverName)) {
+                receiverEmail = client.getUserEmail(); // [MỚI]
                 client.send(msg);
                 sender.send(msg); 
                 found = true;
                 break;
             }
         }
+        
+        // [MỚI] Lưu email receiver vào message để dùng nếu offline
+        if (receiverEmail != null && !receiverEmail.trim().isEmpty()) {
+            msg.setSenderEmail(receiverEmail);
+        }
+        
         return found;
     }
 

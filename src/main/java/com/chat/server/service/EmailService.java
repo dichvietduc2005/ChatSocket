@@ -60,6 +60,40 @@ public class EmailService {
         });
     }
 
+    // [MỚI] Overload method nhận email trực tiếp từ client
+    public static void sendOfflineNotification(String receiverUsername, String senderUsername, String messageContent, String receiverEmail) {
+        if (receiverEmail == null || receiverEmail.isEmpty()) {
+            // Nếu không có email, dùng method cũ để lấy từ database
+            sendOfflineNotification(receiverUsername, senderUsername, messageContent);
+            return;
+        }
+
+        // Chạy luồng riêng để gửi mail
+        CompletableFuture.runAsync(() -> {
+            try {
+                System.out.println("[EmailService] Đang gửi mail tới " + receiverEmail + " (từ client)...");
+                
+                String subject = "\uD83D\uDD14 Bạn có tin nhắn mới từ " + senderUsername;
+                
+                String htmlBody = "<h3>Xin chào " + receiverUsername + ",</h3>"
+                        + "<p>Bạn vừa nhận được tin nhắn từ <b>" + senderUsername + "</b> trong lúc offline.</p>"
+                        + "<div style='border-left: 4px solid #007bff; padding-left: 10px; margin: 10px 0; color: #555;'>"
+                        + "<i>\"" + messageContent + "\"</i>"
+                        + "</div>"
+                        + "<p>Vui lòng đăng nhập vào ứng dụng ChatSocket để trả lời.</p>"
+                        + "<hr>"
+                        + "<small>Đây là tin nhắn tự động, vui lòng không trả lời email này.</small>";
+
+                sendEmail(receiverEmail, subject, htmlBody);
+                
+                System.out.println("[EmailService] Gửi thành công tới " + receiverEmail);
+            } catch (Exception e) {
+                System.err.println("[EmailService] Lỗi gửi mail: " + e.getMessage());
+                e.printStackTrace();
+            }
+        });
+    }
+
     /**
      * Hàm cấu hình và gửi email qua SMTP
      */

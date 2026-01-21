@@ -1,8 +1,30 @@
 package com.chat.client;
 
+import java.awt.Toolkit;
+import java.io.EOFException;
+import java.io.File;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
+import java.net.SocketException;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+
+import javax.net.ssl.SSLSocket;
+
 import com.chat.client.network.HttpUploadClient;
+import com.chat.client.network.MulticastAdminListener;
+import com.chat.client.network.UdpDiscovery;
+import com.chat.common.crypto.SSLUtil;
 import com.chat.common.model.ChatMessage;
+import com.chat.common.protocol.NetworkConstants;
 import com.chat.common.protocol.OpCode;
+
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
@@ -11,11 +33,27 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Scene;
-import javafx.scene.control.*;
+import javafx.scene.control.Alert;
+import javafx.scene.control.Button;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.Dialog;
+import javafx.scene.control.Hyperlink;
+import javafx.scene.control.Label;
+import javafx.scene.control.ListCell;
+import javafx.scene.control.ListView;
+import javafx.scene.control.TextField;
+import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.KeyCode;
-import javafx.scene.layout.*;
+import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Circle;
 import javafx.scene.text.Font;
@@ -27,18 +65,6 @@ import javafx.stage.Modality;
 import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
-
-import com.chat.common.crypto.SSLUtil;
-import com.chat.common.protocol.NetworkConstants;
-import com.chat.client.network.UdpDiscovery;
-import java.io.*;
-import java.net.*;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
-import java.util.HashSet;
-import javax.net.ssl.SSLSocket;
-import java.awt.Toolkit;
 
 public class ClientMain extends Application {
 
@@ -71,9 +97,13 @@ public class ClientMain extends Application {
     private ObjectOutputStream out;
     private ObjectInputStream in;
     private String username;
+    private String userEmail; // [MỚI] Email người dùng
     
     // --- BUZZ ---
     private DatagramSocket buzzSocket;
+    
+    // --- MULTICAST ADMIN LISTENER ---
+    private MulticastAdminListener adminListener;
 
     @Override
     public void start(Stage primaryStage) {
@@ -92,6 +122,9 @@ public class ClientMain extends Application {
         TextField usernameField = new TextField("User" + (int)(Math.random() * 999));
         usernameField.setPromptText("Nhập tên hiển thị");
         
+        TextField emailField = new TextField(); // [MỚI] Email field
+        emailField.setPromptText("Nhập email (để gửi tin nhắn offline)");
+        
         Label ipLabel = new Label("Server IP:");
         TextField ipField = new TextField(serverHost);
         ipField.setEditable(true);
@@ -105,11 +138,13 @@ public class ClientMain extends Application {
         
         grid.add(new Label("Tên hiển thị:"), 0, 0);
         grid.add(usernameField, 1, 0);
-        grid.add(ipLabel, 0, 1);
-        grid.add(ipField, 1, 1);
-        grid.add(portLabel, 0, 2);
-        grid.add(portField, 1, 2);
-        grid.add(infoLabel, 0, 3, 2, 1);
+        grid.add(new Label("Email:"), 0, 1); // [MỚI]
+        grid.add(emailField, 1, 1); // [MỚI]
+        grid.add(ipLabel, 0, 2);
+        grid.add(ipField, 1, 2);
+        grid.add(portLabel, 0, 3);
+        grid.add(portField, 1, 3);
+        grid.add(infoLabel, 0, 4, 2, 1);
         
         ButtonType loginButtonType = new ButtonType("Kết nối", ButtonBar.ButtonData.OK_DONE);
         dialog.getDialogPane().getButtonTypes().addAll(loginButtonType, ButtonType.CANCEL);
@@ -146,6 +181,7 @@ public class ClientMain extends Application {
         var result = dialog.showAndWait();
         if (result.isPresent() && !result.get().trim().isEmpty()) {
             username = result.get().trim();
+            userEmail = emailField.getText().trim(); // [MỚI] Lưu email
             serverHost = ipField.getText().trim().isEmpty() ? SERVER_HOST : ipField.getText().trim();
             try {
                 serverPort = Integer.parseInt(portField.getText().trim());
@@ -158,6 +194,7 @@ public class ClientMain extends Application {
 
         // --- KHỞI TẠO DỮ LIỆU & UI COMPONENTS TRƯỚC (FIX LỖI NULL POINTER) ---
         conversations.put(CHAT_GENERAL_KEY, FXCollections.observableArrayList());
+        conversations.put("🔔 ADMIN CHAT", FXCollections.observableArrayList()); // [MỚI] Khởi tạo Admin Chat conversation
         
         // [QUAN TRỌNG] Khởi tạo chatWindow ngay tại đây để tránh lỗi khi Sidebar gọi tới nó
         chatWindow = new ListView<>();
@@ -224,6 +261,7 @@ public class ClientMain extends Application {
         });
 
         onlineUsers.add(CHAT_GENERAL_KEY);
+        onlineUsers.add("🔔 ADMIN CHAT"); // [MỚI] Thêm Admin Chat channel
         userListWindow.getSelectionModel().select(0); // Kích hoạt sự kiện chọn
 
         leftSide.getChildren().addAll(userListTitle, userListWindow);
@@ -300,11 +338,23 @@ public class ClientMain extends Application {
             
             System.out.println("✓ Connected securely with cipher: " + sslSocket.getSession().getCipherSuite());
 
-            out.writeObject(new ChatMessage(OpCode.LOGIN, username, null, null));
+            ChatMessage loginMsg = new ChatMessage(OpCode.LOGIN, username, null, null);
+            loginMsg.setSenderEmail(userEmail); // [MỚI] Gửi email kèm login
+            out.writeObject(loginMsg);
             out.flush();
 
             // Khởi động Buzz listener
             initBuzzListener();
+            
+            // [MỚI] Khởi động Multicast Admin Listener
+            try {
+                adminListener = new MulticastAdminListener();
+                adminListener.start(msg -> {
+                    Platform.runLater(() -> addMessageToConversation("🔔 ADMIN CHAT", msg));
+                });
+            } catch (Exception e) {
+                System.err.println("Failed to start Multicast Admin Listener: " + e.getMessage());
+            }
             
             // Vòng lặp lắng nghe tin nhắn
             while (sslSocket != null && !sslSocket.isClosed()) {
@@ -414,9 +464,17 @@ public class ClientMain extends Application {
     private void sendMessage() {
         String content = inputField.getText().trim();
         if (content.isEmpty()) return;
+        
+        // [MỚI] Không gửi nếu đang xem Admin Chat
+        if ("🔔 ADMIN CHAT".equals(currentReceiver) || (currentReceiver == null && userListWindow.getSelectionModel().getSelectedItem() != null && userListWindow.getSelectionModel().getSelectedItem().equals("🔔 ADMIN CHAT"))) {
+            showNotification("⚠ Không thể gửi tin nhắn tới Admin Chat. Admin Chat là kênh chỉ xem.");
+            return;
+        }
+        
         try {
             OpCode code = (currentReceiver == null) ? OpCode.CHAT_GROUP : OpCode.CHAT_MSG;
             ChatMessage msg = new ChatMessage(code, username, currentReceiver, content);
+            msg.setSenderEmail(userEmail); // [MỚI] Gửi email để gửi tin offline nếu cần
             out.writeObject(msg); out.flush();
             inputField.clear();
         } catch (IOException e) { e.printStackTrace(); }
@@ -449,6 +507,11 @@ public class ClientMain extends Application {
             }
             if (sslSocket != null) sslSocket.close();
             stopBuzzListener();
+            
+            // [MỚI] Dừng Multicast Listener
+            if (adminListener != null) {
+                adminListener.stop();
+            }
         } catch (Exception e) {}
         System.exit(0);
     }
@@ -544,6 +607,17 @@ public class ClientMain extends Application {
         if (buzzSocket != null && !buzzSocket.isClosed()) {
             buzzSocket.close();
         }
+    }
+    
+    // [MỚI] Hàm hiển thị thông báo
+    private void showNotification(String message) {
+        Platform.runLater(() -> {
+            Alert alert = new Alert(Alert.AlertType.INFORMATION);
+            alert.setTitle("Thông báo");
+            alert.setHeaderText(null);
+            alert.setContentText(message);
+            alert.showAndWait();
+        });
     }
 
     public static void main(String[] args) {
