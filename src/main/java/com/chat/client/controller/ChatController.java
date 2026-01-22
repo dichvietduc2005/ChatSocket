@@ -44,58 +44,65 @@ public class ChatController {
                 }
             });
         });
+
+        // Tự động trỏ chuột vào ô nhập tin nhắn khi mở lên
+        Platform.runLater(() -> txtInput.requestFocus());
     }
 
-    // [QUAN TRỌNG] Hàm này nãy bị thiếu, giờ đã thêm lại để ConnectController không báo lỗi
     public TextArea getNotificationArea() {
         return txtNotification;
     }
 
     private void processMessage(ChatMessage msg) {
-        // [MỚI] Lấy giờ hiện tại
         String time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
 
         switch (msg.getOpCode()) {
             case CHAT_MSG:
-                if (msg.getSender().equals(myName)) {
-                    txtMessageArea.appendText("[" + time + "] [Riêng tới " + msg.getReceiver() + "]: " + msg.getContent() + "\n");
-                } else {
-                    txtMessageArea.appendText("[" + time + "] [Riêng từ " + msg.getSender() + "]: " + msg.getContent() + "\n");
-                }
+                String prefix = msg.getSender().equals(myName) ? "[Riêng tới " + msg.getReceiver() + "]" : "[Riêng từ " + msg.getSender() + "]";
+                txtMessageArea.appendText("[" + time + "] " + prefix + ": " + msg.getContent() + "\n");
                 break;
             case CHAT_GROUP:
                 txtMessageArea.appendText("[" + time + "] " + msg.getSender() + ": " + msg.getContent() + "\n");
                 break;
             case USER_LIST:
-                String[] usersWithIP = msg.getContent().split(",");
-                List<String> usernames = new ArrayList<>();
-                userIPMap.clear();
-
-                for (String userInfo : usersWithIP) {
-                    String[] parts = userInfo.split(":");
-                    if (parts.length >= 2) {
-                        usernames.add(parts[0]);
-                        userIPMap.put(parts[0], parts[1]);
-                    } else if (parts.length == 1) {
-                        usernames.add(parts[0]);
-                    }
-                }
-
-                Platform.runLater(() -> {
-                    String selected = userList.getSelectionModel().getSelectedItem();
-                    userList.getItems().clear();
-                    userList.getItems().add("Mọi người");
-                    for (String u : usernames) {
-                        if (!u.trim().isEmpty()) userList.getItems().add(u.trim());
-                    }
-                    if (selected != null && userList.getItems().contains(selected)) {
-                        userList.getSelectionModel().select(selected);
-                    } else {
-                        userList.getSelectionModel().select("Mọi người");
-                    }
-                });
+                handleUserListMessage(msg);
                 break;
         }
+
+        // [FIX LỖI] Dùng lệnh mạnh hơn để ép cuộn xuống cuối cùng
+        Platform.runLater(() -> {
+            txtMessageArea.setScrollTop(Double.MAX_VALUE);
+        });
+    }
+
+    private void handleUserListMessage(ChatMessage msg) {
+        String[] usersWithIP = msg.getContent().split(",");
+        List<String> usernames = new ArrayList<>();
+        userIPMap.clear();
+
+        for (String userInfo : usersWithIP) {
+            String[] parts = userInfo.split(":");
+            if (parts.length >= 2) {
+                usernames.add(parts[0]);
+                userIPMap.put(parts[0], parts[1]);
+            } else if (parts.length == 1) {
+                usernames.add(parts[0]);
+            }
+        }
+
+        Platform.runLater(() -> {
+            String selected = userList.getSelectionModel().getSelectedItem();
+            userList.getItems().clear();
+            userList.getItems().add("Mọi người");
+            for (String u : usernames) {
+                if (!u.trim().isEmpty()) userList.getItems().add(u.trim());
+            }
+            if (selected != null && userList.getItems().contains(selected)) {
+                userList.getSelectionModel().select(selected);
+            } else {
+                userList.getSelectionModel().select("Mọi người");
+            }
+        });
     }
 
     @FXML
@@ -104,15 +111,18 @@ public class ChatController {
         if (content.isEmpty()) return;
 
         String selectedUser = userList.getSelectionModel().getSelectedItem();
+        ChatMessage msg;
+
         if (selectedUser != null && !selectedUser.equals("Mọi người") && !selectedUser.equals(myName)) {
-            ChatMessage msg = new ChatMessage(OpCode.CHAT_MSG, myName, content);
+            msg = new ChatMessage(OpCode.CHAT_MSG, myName, content);
             msg.setReceiver(selectedUser);
-            client.sendMessage(msg);
         } else {
-            ChatMessage msg = new ChatMessage(OpCode.CHAT_GROUP, myName, content);
-            client.sendMessage(msg);
+            msg = new ChatMessage(OpCode.CHAT_GROUP, myName, content);
         }
+
+        client.sendMessage(msg);
         txtInput.clear();
+        txtInput.requestFocus();
     }
 
     @FXML
@@ -122,9 +132,7 @@ public class ChatController {
             txtMessageArea.appendText(">>> Chọn một người để BUZZ!\n");
             return;
         }
-        String targetIP = userIPMap.get(selectedUser);
-        if (targetIP == null) targetIP = "127.0.0.1";
-
+        String targetIP = userIPMap.getOrDefault(selectedUser, "127.0.0.1");
         txtMessageArea.appendText(">>> Gửi BUZZ tới " + selectedUser + "...\n");
         if (client != null) client.sendBuzz(targetIP);
     }
@@ -142,8 +150,7 @@ public class ChatController {
                     String fileUrl = HttpUploadClient.uploadFile(file, "http://localhost:8080/api/upload");
                     if (fileUrl != null) {
                         String content = "Đã gửi file: " + fileUrl;
-                        ChatMessage msg = new ChatMessage(OpCode.CHAT_GROUP, myName, content);
-                        client.sendMessage(msg);
+                        client.sendMessage(new ChatMessage(OpCode.CHAT_GROUP, myName, content));
                     } else {
                         Platform.runLater(() -> txtMessageArea.appendText(">>> Lỗi: Không nhận được link file.\n"));
                     }
